@@ -1,0 +1,3080 @@
+---
+title: "NanoString Analysis March 2024"
+author: "Rebecca Valls"
+date: "2024-03-16"
+output: html_document
+---
+
+#Download packages
+```{r}
+
+# Install the packages
+install.packages("BiocManager")
+BiocManager::install("limma")
+BiocManager::install("lmTest")
+
+
+
+install.packages("ggplot2")
+install.packages("readr")
+install.packages("lme4")
+install.packages("sjPlot")
+install.packages("dplyr")
+install.packages("lmtest")
+install.packages("tidyr")
+install.packages("tidyverse")
+install.packages("RColorBrewer")
+install.packages("viridis")
+
+
+
+
+library(ggplot2)
+library(readr)
+library(lme4)
+library(sjPlot)
+library(dplyr)
+library(lmtest)
+library(tidyr)
+library(tidyverse)
+library(limma)
+library(RColorBrewer)
+library(viridis)
+library(ggrepel)
+
+
+
+
+
+
+
+
+```
+#Call in and format data
+
+```{r}
+NormalizedHostResponseCounts_failedsamplesrm <- read_csv("NormalizedHostResponseCounts_failedsamplesrm.csv")
+
+
+
+#Format data
+
+#make long format for easier stats and plotting
+Nano_normalized_long_df <- pivot_longer(NormalizedHostResponseCounts_failedsamplesrm, 
+                               cols = 8:806, 
+                               names_to = "Gene", 
+                               values_to = "NormalizedCount")
+
+
+Nano_normalized_long_df$NormalizedCount <- as.numeric(as.character(Nano_normalized_long_df$NormalizedCount))
+
+# Replace all non-alphanumeric characters with '_'
+Nano_normalized_long_df$Gene <- gsub("[^a-zA-Z0-9]", "_", Nano_normalized_long_df$Gene)
+Nano_normalized_long_df <- Nano_normalized_long_df[!grepl("NEG_|POS_", Nano_normalized_long_df$Gene), ]
+
+
+#Subset the data to only have treatments Baseline and PBS
+Nano_normalized_BasevsPBS <- subset(Nano_normalized_long_df, Treatment %in% c("Baseline", "PBS"))
+
+#Subset the data to only have treatments PBS and Bacteroides
+Nano_normalized_PBSvsBt <- subset(Nano_normalized_long_df, Treatment %in% c("PBS", "Bacteroides"))
+
+#Subset the data to only have treatments Baseline and Bacteroides
+Nano_normalized_BasevsPBS <- subset(Nano_normalized_long_df, Treatment %in% c("Baseline", "Bacteroides"))
+
+#Factor Treatment
+Nano_normalized_PBSvsBt$Treatment <- factor(Nano_normalized_PBSvsBt$Treatment, levels = c("PBS", "Bacteroides"))
+
+#Subset the data to only have treatments PBS and Bacteroides for SI
+Nano_normalized_PBSvsBt_SI <- subset(Nano_normalized_PBSvsBt, Biogeography %in% c("SI"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Cec
+Nano_normalized_PBSvsBt_Cec <- subset(Nano_normalized_PBSvsBt, Biogeography %in% c("Cec"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Proximal Colon
+Nano_normalized_PBSvsBt_Pro <- subset(Nano_normalized_PBSvsBt, Biogeography %in% c("Pro"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Distal Colon
+Nano_normalized_PBSvsBt_Dis <- subset(Nano_normalized_PBSvsBt, Biogeography %in% c("Dis"))
+
+
+#Subset the data to only have treatments PBS and Bacteroides for SI
+Nano_normalized_BasevsPBS_SI <- subset(Nano_normalized_BasevsPBS, Biogeography %in% c("SI"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Cec
+Nano_normalized_BasevsPBS_Cec <- subset(Nano_normalized_BasevsPBS, Biogeography %in% c("Cec"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Proximal Colon
+Nano_normalized_BasevsPBS_Pro <- subset(Nano_normalized_BasevsPBS, Biogeography %in% c("Pro"))
+
+#Subset the data to only have treatments PBS and Bacteroides for Distal Colon
+Nano_normalized_BasevsPBS_Dis <- subset(Nano_normalized_BasevsPBS, Biogeography %in% c("Dis"))
+
+
+
+```
+
+#Call in NanoString Host Response Panel Data so that we can include more info on the probes and their pathways
+```{r}
+
+MouseHostResponsePanel_annotations <- read_csv("MouseHostResponsePanel_annotations.csv")
+
+annotations_df <- MouseHostResponsePanel_annotations %>%
+  gather(key = "Pathway", value = "Indicator", 4:60) %>%
+  filter(Indicator == "+") %>%
+  select(Gene, CellType = "Cell Type", Pathway) %>% # Change Cell_Type to your actual column name
+  group_by(Gene, CellType) %>%
+  summarise(Pathways = paste(Pathway, collapse = ", "), .groups = 'drop')
+
+
+
+```
+
+#Post GGplot of all counts (y axis) for each sample in the x axis
+```{r}
+
+# Sum the 'NormalizedCount' for each 'ShortLabel' and 'Treatment'.
+Nano_normalized_sum_df <- Nano_normalized_long_df %>%
+  group_by(ShortLabel, Treatment, Biogeography) %>%
+  summarise(TotalNormalizedCount = sum(NormalizedCount)) %>%
+  ungroup()
+
+Nano_normalized_sum_df$Treatment <- factor(Nano_normalized_sum_df$Treatment, levels = c("Baseline", "PBS", "Bacteroides"))
+Nano_normalized_sum_df$Biogeography <- factor(Nano_normalized_sum_df$Biogeography, levels = c("SI", "Cec", "Pro", "Dis"))
+
+
+reads_across_samples_boxplot <- ggplot(Nano_normalized_sum_df, aes(x = Biogeography, y = TotalNormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+reads_across_samples_boxplot
+
+reads_across_samples_norm_boxplot <- ggplot(Nano_normalized_sum_df, aes(x = Treatment, y = TotalNormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Biogeography, ncol=4)+
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+reads_across_samples_norm_boxplot
+
+# Save the plot as a PDF
+ggsave("reads_across_samples_norm_boxplot.pdf", plot = reads_across_samples_norm_boxplot, width = 8, height = 4, device = "pdf")
+
+
+
+```
+
+
+
+#Test linear model on one gene
+
+```{r}
+#Subset Nano_normalized_long_df to only have the KC gene (Cxcl1)
+
+Nano_normalized_Cxcl1 <- subset(Nano_normalized_long_df, Gene == "Cxcl1")
+
+
+# Fit the mixed linear model
+Cxcl1_model <- lm(NormalizedCount ~ Treatment + Sex + Biogeography + (1|Mouse) , data = Nano_normalized_Cxcl1)
+
+# Obtain the summary of the model
+summary(Cxcl1_model)
+
+#Subset just SI
+Nano_normalized_Cxcl1_SI <- subset(Nano_normalized_Cxcl1, Biogeography == "SI")
+
+# Fit the mixed linear model
+Cxcl1_SI_model <- lm(NormalizedCount ~ Treatment + Sex + Treatment*Sex+(1|Mouse) , data = Nano_normalized_Cxcl1_SI)
+
+# Obtain the summary of the model
+summary(Cxcl1_SI_model)
+
+
+```
+
+#Make a boxplot for each gene, and print it onto a pdf page with Biogeography on the x axis, with each treatment colored, and each point a circle for sex female or triangle for sex male
+
+```{r}
+#Factor Biogeography
+Nano_normalized_long_df$Biogeography <- factor(Nano_normalized_long_df$Biogeography, levels = c("SI", "Cec", "Pro", "Dis"))
+
+#Factor Biogeography
+Nano_normalized_long_df$Treatment <- factor(Nano_normalized_long_df$Treatment, levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Assuming Nano_normalized_long_df is already loaded in your R session
+
+# Open a PDF device for plotting
+pdf("Nano_normalized_genes_plots.pdf")
+
+# Loop through each unique gene and create a boxplot
+for(gene in unique(Nano_normalized_long_df$Gene)) {
+  gene_data <- subset(Nano_normalized_long_df, Gene == gene)
+  
+  # Create the boxplot with ggplot
+  p <- ggplot(gene_data, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+    geom_boxplot() +
+    geom_point(aes(shape = Sex), position=position_dodge(width=0.75)) +
+    labs(title = gene) +
+    scale_color_viridis_d() +
+    scale_shape_manual(values = c("Female" = 16, "Male" = 17)) + # 16: circle, 17: triangle
+    theme_bw()
+  
+  # Print the plot to the current page
+  print(p)
+}
+
+# Close the PDF device
+dev.off()
+
+```
+
+
+
+#Run a mixed effects linear model on each gene that determines what genes treatment has the largest effct on their count
+
+#Just in the SI
+#Just in the Cec
+#Just in Pro
+#Just in Dis
+#Do this across all regions at once.
+```{r}
+
+# Calculate the number of unique values in each column
+num_unique_values <- sapply(Nano_normalized_PBSvsBt_SI, function(column) length(unique(column)))
+
+# Print the number of unique values
+print(num_unique_values)
+
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_genes_PBSvsBt_SI", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_genes_PBSvsBt_SI_summary <- data.frame(
+  Gene = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_PBSvsBt_SI_summary, term) {
+  coef_table <- as.data.frame(model_PBSvsBt_SI_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_PBSvsBt_SI$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_PBSvsBt_SI, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lm(log2(NormalizedCount) ~ Treatment + Sex + Treatment*Sex, data = subset_data)
+
+  # Obtain the summary of the model
+  model_PBSvsBt_SI_summary <- summary(model)
+
+  # Extract the p-values for Treatment and Sex
+  p_treatment <- safe_extract_pvalue(model_PBSvsBt_SI_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_PBSvsBt_SI_summary, "SexMale")
+  p_sex_treatment <- safe_extract_pvalue(model_BasevsPBS_SI_summary, "TreatmentBacteroides:SexMale")
+
+  # Add to the summary dataframe
+  linear_models_genes_PBSvsBt_SI_summary <- rbind(linear_models_genes_PBSvsBt_SI_summary, data.frame(
+    Gene = gene,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Sex_Treatment = p_sex_treatment
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_genes_PBSvsBt_SI/model_", gene, ".txt")
+  capture.output(model_PBSvsBt_SI_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(model_PBSvsBt_SI_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_genes_PBSvsBt_SI_summary$Significance_Treatment <- sapply(linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment, categorize_significance)
+
+# View the updated dataframe
+linear_models_genes_PBSvsBt_SI_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment, method = "bonferroni")
+
+linear_models_genes_PBSvsBt_SI_summary$Significance_Treatment_Bonferonni <- sapply(linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment_Bonferroni, categorize_significance)
+
+#Add annotations and cell type to p value summary
+linear_models_genes_PBSvsBt_SI_annotated_summary <- merge(linear_models_genes_PBSvsBt_SI_summary, annotations_df, by = "Gene")
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_genes_PBSvsBt_SI_annotated_summary, "linear_models_genes_PBSvsBt_SI_summary.csv", row.names = FALSE)
+
+#FDR Correction
+linear_models_genes_PBSvsBt_SI_summary$FDRadjusted_p_value <- p.adjust(linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment, method = "BH")
+
+
+
+```
+
+
+# Make a volcano plot that identifies genes significantly differentially expressed in Bt vs PBS treatment in the SI
+https://biostatsquid.com/volcano-plots-r-tutorial/
+```{r}
+linear_models_genes_PBSvsBt_SI_summary <- read_csv("linear_models_genes_PBSvsBt_SI_summary.csv")
+
+
+# Filter data for nonCF and CF
+SI_PBS_data <- Nano_normalized_PBSvsBt_SI[Nano_normalized_PBSvsBt_SI$Treatment == 'PBS', ]
+SI_Bt_data <- Nano_normalized_PBSvsBt_SI[Nano_normalized_PBSvsBt_SI$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both PBS and Bt groups
+median_PBS_SI <- aggregate(NormalizedCount ~ Gene, SI_PBS_data, median)
+median_Bt_SI <- aggregate(NormalizedCount ~ Gene, SI_Bt_data, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_SI_genes <- merge(median_PBS_SI, median_Bt_SI, by = "Gene")
+
+# Calculate fold changes
+foldchange_SI_genes$FoldChange <- foldchange_SI_genes$NormalizedCount.y / foldchange_SI_genes$NormalizedCount.x
+
+# Rename columns for clarity
+names(foldchange_SI_genes) <- c("Gene", "median_PBS", "median_Bt", "FoldChange")
+
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_SI_genes <- merge(foldchange_SI_genes, linear_models_genes_PBSvsBt_SI_summary[, c("Gene", "P_Value_Treatment")], by = "Gene", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on PBS vs Bt SI genes 
+```{r}
+
+
+# Transform the data
+foldchange_SI_genes$log2FoldChange <- log2(foldchange_SI_genes$FoldChange)
+foldchange_SI_genes$negLog10PValue <- -log10(foldchange_SI_genes$P_Value_Treatment)
+
+# Add a new column "DiffExpression" to the foldchange_serum DataFrame
+foldchange_SI_genes$DiffExpression <- ifelse(foldchange_SI_genes$P_Value_Treatment< 0.05, 
+                                          ifelse(foldchange_SI_genes$FoldChange > 1, "Up in Bt", 
+                                                 ifelse(foldchange_SI_genes$FoldChange < 1, "Down in Bt", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+# Create a new data frame containing only the top 10 genes by negLog10PValue
+top_10_genes_SI <- foldchange_SI_genes %>%
+  slice_max(order_by = negLog10PValue, n = 10)
+
+# You can print this to double-check
+print(top_10_genes_SI)
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBt_SI <- ggplot(data = foldchange_SI_genes, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+  geom_point() +
+  theme_bw() +
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bt" = "#00AFBB", "Down in Bt" = "#bb0c00", "Not Significant" = "grey")) +
+  theme(plot.title = element_text(size = 12)) +
+  xlab(expression(log[2]("Fold Change"))) +  # x-axis label with subscript
+  ylab(expression(-log[10]("P-Value"))) +
+
+  # --- ADD THIS LAYER FOR LABELS ---
+  geom_text_repel(
+    data = top_10_genes_SI,         # Use the new data frame for labels
+    aes(label = Gene),          # Tell ggplot that the 'Gene' column is the label
+    size = 3.5,                 # Adjust font size
+    box.padding = 1,          # Increase space between label and point
+    max.overlaps = Inf,         # Ensure all labels are shown
+    color = "black"             # Set a contrasting color for the labels
+  )  
+
+Volcanoplot_PBSvsBt_SI
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBt_SI.pdf", plot = Volcanoplot_PBSvsBt_SI, width = 8, height = 4, device = "pdf")
+
+# Count the number of genes in each category
+diff_expression_counts <- table(foldchange_SI_genes$DiffExpression)
+
+# Extract counts for "Up in Bt" and "Down in Bt"
+up_in_bt_count <- diff_expression_counts["Up in Bt"]
+down_in_bt_count <- diff_expression_counts["Down in Bt"]
+
+# Print the counts
+cat("Number of genes significantly upregulated in Bt: ", up_in_bt_count, "\n")
+cat("Number of genes significantly downregulated in Bt: ", down_in_bt_count, "\n")
+
+
+
+```
+
+
+```{r}
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_genes_PBSvsBt_Cec", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_genes_PBSvsBt_Cec_summary <- data.frame(
+  Gene = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_PBSvsBt_Cec_summary, term) {
+  coef_table <- as.data.frame(model_PBSvsBt_Cec_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_PBSvsBt_Cec$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_PBSvsBt_Cec, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lm(log2(NormalizedCount) ~ Treatment + Sex + Treatment*Sex, data = subset_data)
+
+  # Obtain the summary of the model
+  model_PBSvsBt_Cec_summary <- summary(model)
+
+  # Extract the p-values for Treatment and Sex
+  p_treatment <- safe_extract_pvalue(model_PBSvsBt_Cec_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_PBSvsBt_Cec_summary, "SexMale")
+  p_treatment_sex <- safe_extract_pvalue(model_PBSvsBt_Cec_summary, "TreatmentBacteroides:SexMale")
+
+  # Add to the summary dataframe
+  linear_models_genes_PBSvsBt_Cec_summary <- rbind(linear_models_genes_PBSvsBt_Cec_summary, data.frame(
+    Gene = gene,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Treatment_Sex = p_treatment_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_genes_PBSvsBt_Cec/model_", gene, ".txt")
+  capture.output(model_PBSvsBt_Cec_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(model_PBSvsBt_Cec_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_genes_PBSvsBt_Cec_summary$Significance_Treatment <- sapply(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment, categorize_significance)
+linear_models_genes_PBSvsBt_Cec_summary$Significance_Sex <- sapply(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Sex, categorize_significance)
+linear_models_genes_PBSvsBt_Cec_summary$Significance_Treatment_Sex <- sapply(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment_Sex, categorize_significance)
+
+# View the updated dataframe
+linear_models_genes_PBSvsBt_Cec_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment, method = "bonferroni")
+
+linear_models_genes_PBSvsBt_Cec_summary$P_Value_Sex_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Sex, method = "bonferroni")
+
+linear_models_genes_PBSvsBt_Cec_summary$Significance_Treatment_Bonferonni <- sapply(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment_Bonferroni, categorize_significance)
+
+linear_models_genes_PBSvsBt_Cec_summary$Significance_Sex_Bonferonni <- sapply(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Sex_Bonferroni, categorize_significance)
+
+
+
+#Add annotations and cell type to p value summary
+linear_models_genes_PBSvsBt_Cec_annotated_summary <- merge(linear_models_genes_PBSvsBt_Cec_summary, annotations_df, by = "Gene")
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_genes_PBSvsBt_Cec_annotated_summary, "linear_models_genes_PBSvsBt_Cec_summary.csv", row.names = FALSE)
+
+
+#FDR Correction
+linear_models_genes_PBSvsBt_Cec_summary$FDRadjusted_p_value <- p.adjust(linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment, method = "BH")
+
+
+```
+
+# Make a volcano plot that identifies genes significantly differentially expressed in Bt vs PBS treatment in the Cec
+https://biostatsquid.com/volcano-plots-r-tutorial/
+```{r}
+
+linear_models_genes_PBSvsBt_Cec_summary <- read_csv("linear_models_genes_PBSvsBt_Cec_summary.csv")
+
+
+# Filter data for PBS and Bt
+Cec_PBS_data <- Nano_normalized_PBSvsBt_Cec[Nano_normalized_PBSvsBt_Cec$Treatment == 'PBS', ]
+Cec_Bt_data <- Nano_normalized_PBSvsBt_Cec[Nano_normalized_PBSvsBt_Cec$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both PBS and Bt groups
+median_PBS_Cec <- aggregate(NormalizedCount ~ Gene, Cec_PBS_data, median)
+median_Bt_Cec <- aggregate(NormalizedCount ~ Gene, Cec_Bt_data, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_Cec_genes <- merge(median_PBS_Cec, median_Bt_Cec, by = "Gene")
+
+# Calculate fold changes
+foldchange_Cec_genes$FoldChange <- foldchange_Cec_genes$NormalizedCount.y / foldchange_Cec_genes$NormalizedCount.x
+
+# Rename columns for clarity
+names(foldchange_Cec_genes) <- c("Gene", "median_PBS", "median_Bt", "FoldChange")
+
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_Cec_genes <- merge(foldchange_Cec_genes, linear_models_genes_PBSvsBt_Cec_summary[, c("Gene", "P_Value_Treatment")], by = "Gene", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on PBS vs Bt Cec genes 
+```{r}
+# Transform the data
+foldchange_Cec_genes$log2FoldChange <- log2(foldchange_Cec_genes$FoldChange)
+foldchange_Cec_genes$negLog10PValue <- -log10(foldchange_Cec_genes$P_Value_Treatment)
+
+# Add a new column "DiffExpressicon" to the foldchange_serum DataFrame
+foldchange_Cec_genes$DiffExpression <- ifelse(foldchange_Cec_genes$P_Value_Treatment< 0.05, 
+                                          ifelse(foldchange_Cec_genes$FoldChange > 1, "Up in Bt", 
+                                                 ifelse(foldchange_Cec_genes$FoldChange < 1, "Down in Bt", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+# Create a new data frame containing only the top 10 genes by negLog10PValue
+top_10_genes_Cec <- foldchange_Cec_genes %>%
+  slice_max(order_by = negLog10PValue, n = 10)
+
+# You can print this to double-check
+print(top_10_genes_Cec)
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBt_Cec<- ggplot(data = foldchange_Cec_genes, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bt" = "#00AFBB", "Down in Bt" = "#bb0c00", "Not Significant" = "grey"))+
+  theme(plot.title = element_text(size = 12)) + # Reduced font size for title
+  xlab(expression(log[2]("Fold Change"))) +  # x-axis label with subscript
+  ylab(expression(-log[10]("P-Value"))) +
+  
+  # --- ADD THIS LAYER FOR LABELS ---
+  geom_text_repel(
+    data = top_10_genes_Cec,         # Use the new data frame for labels
+    aes(label = Gene),          # Tell ggplot that the 'Gene' column is the label
+    size = 3.5,                 # Adjust font size
+    box.padding = 1,          # Increase space between label and point
+    max.overlaps = Inf,         # Ensure all labels are shown
+    color = "black"             # Set a contrasting color for the labels
+  )  
+  
+  
+Volcanoplot_PBSvsBt_Cec
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBt_Cec.pdf", plot = Volcanoplot_PBSvsBt_Cec, width = 8, height = 4, device = "pdf")
+
+
+# Count the number of genes in each category
+diff_expression_counts_Cec <- table(foldchange_Cec_genes$DiffExpression)
+
+# Extract counts for "Up in Bt" and "Down in Bt"
+up_in_bt_count_Cec <- diff_expression_counts_Cec["Up in Bt"]
+down_in_bt_count_Cec <- diff_expression_counts_Cec["Down in Bt"]
+
+# Print the counts
+cat("Number of genes significantly upregulated in Bt: ", up_in_bt_count_Cec, "\n")
+cat("Number of genes significantly downregulated in Bt: ", down_in_bt_count_Cec, "\n")
+
+
+
+
+
+```
+
+```{r}
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_genes_PBSvsBt_Pro", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_genes_PBSvsBt_Pro_summary <- data.frame(
+  Gene = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  P_Value_TreatmentSex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_PBSvsBt_Pro_summary, term) {
+  coef_table <- as.data.frame(model_PBSvsBt_Pro_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_PBSvsBt_Pro$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_PBSvsBt_Pro, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lm(log2(NormalizedCount) ~ Treatment + Sex + Sex*Treatment, data = subset_data)
+
+  # Obtain the summary of the model
+  model_PBSvsBt_Pro_summary <- summary(model)
+
+  # Extract the p-values for Treatment and Sex
+  p_treatment <- safe_extract_pvalue(model_PBSvsBt_Pro_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_PBSvsBt_Pro_summary, "SexMale")
+  p_treatment_sex <- safe_extract_pvalue(model_PBSvsBt_Pro_summary, "TreatmentBacteroides:SexMale")
+
+  # Add to the summary dataframe
+  linear_models_genes_PBSvsBt_Pro_summary <- rbind(linear_models_genes_PBSvsBt_Pro_summary, data.frame(
+    Gene = gene,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Treatment_Sex = p_treatment_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_genes_PBSvsBt_Pro/model_", gene, ".txt")
+  capture.output(model_PBSvsBt_Pro_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(model_PBSvsBt_Pro_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  # Check if p_value is NA
+  if (is.na(p_value)) {
+    return("NA")
+  }
+
+  if (p_value < 0.001) {
+    return("***")
+  } else if (p_value < 0.01) {
+    return("**")
+  } else if (p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_genes_PBSvsBt_Pro_summary$Significance_Treatment <- sapply(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment, categorize_significance)
+
+linear_models_genes_PBSvsBt_Pro_summary$Significance_Sex <- sapply(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Sex, categorize_significance)
+
+linear_models_genes_PBSvsBt_Pro_summary$Significance_Treatment_Sex <- sapply(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment_Sex, categorize_significance)
+
+
+# View the updated dataframe
+linear_models_genes_PBSvsBt_Pro_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment, method = "bonferroni")
+
+
+linear_models_genes_PBSvsBt_Pro_summary$P_Value_Sex_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Sex, method = "bonferroni")
+
+
+linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatmen_Sex_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment_Sex, method = "bonferroni")
+
+
+#Add annotations and cell type to p value summary
+linear_models_genes_PBSvsBt_Pro_annotated_summary <- merge(linear_models_genes_PBSvsBt_Pro_summary, annotations_df, by = "Gene")
+
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_genes_PBSvsBt_Pro_annotated_summary, "linear_models_genes_PBSvsBt_Pro_summary.csv", row.names = FALSE)
+
+#FDR Correction
+linear_models_genes_PBSvsBt_Pro_summary$FDRadjusted_p_value <- p.adjust(linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment, method = "BH")
+
+
+
+```
+
+# Make a volcano plot that identifies genes significantly differentially expressed in Bt vs PBS treatment in the Pro
+https://biostatsquid.com/volcano-plots-r-tutorial/
+```{r}
+
+linear_models_genes_PBSvsBt_Pro_summary <- read_csv("linear_models_genes_PBSvsBt_Pro_summary.csv")
+
+# Filter data for PBS and Bt
+Pro_PBS_data <- Nano_normalized_PBSvsBt_Pro[Nano_normalized_PBSvsBt_Pro$Treatment == 'PBS', ]
+Pro_Bt_data <- Nano_normalized_PBSvsBt_Pro[Nano_normalized_PBSvsBt_Pro$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both PBS and Bt groups
+median_PBS_Pro <- aggregate(NormalizedCount ~ Gene, Pro_PBS_data, median)
+median_Bt_Pro <- aggregate(NormalizedCount ~ Gene, Pro_Bt_data, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_Pro_genes <- merge(median_PBS_Pro, median_Bt_Pro, by = "Gene")
+
+# Calculate fold changes
+foldchange_Pro_genes$FoldChange <- foldchange_Pro_genes$NormalizedCount.y / foldchange_Pro_genes$NormalizedCount.x
+
+# Rename columns for clarity
+names(foldchange_Pro_genes) <- c("Gene", "median_PBS", "median_Bt", "FoldChange")
+
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_Pro_genes <- merge(foldchange_Pro_genes, linear_models_genes_PBSvsBt_Pro_summary[, c("Gene", "P_Value_Treatment")], by = "Gene", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on PBS vs Bt Pro genes 
+```{r}
+# Transform the data
+foldchange_Pro_genes$log2FoldChange <- log2(foldchange_Pro_genes$FoldChange)
+foldchange_Pro_genes$negLog10PValue <- -log10(foldchange_Pro_genes$P_Value_Treatment)
+
+# Add a new column "DiffExpressicon" to the foldchange_serum DataFrame
+foldchange_Pro_genes$DiffExpression <- ifelse(foldchange_Pro_genes$P_Value_Treatment< 0.05, 
+                                          ifelse(foldchange_Pro_genes$FoldChange > 1, "Up in Bt", 
+                                                 ifelse(foldchange_Pro_genes$FoldChange < 1, "Down in Bt", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+# Create a new data frame containing only the top 10 genes by negLog10PValue
+top_10_genes_Pro <- foldchange_Pro_genes %>%
+  slice_max(order_by = negLog10PValue, n = 10)
+
+# You can print this to double-check
+print(top_10_genes_Pro)
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBt_Pro<- ggplot(data = foldchange_Pro_genes, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bt" = "#00AFBB", "Down in Bt" = "#bb0c00", "Not Significant" = "grey"))+
+  theme(plot.title = element_text(size = 12)) + # Reduced font size for title
+  xlab(expression(log[2]("Fold Change"))) +  # x-axis label with subscript
+  ylab(expression(-log[10]("P-Value"))) +
+  
+  # --- ADD THIS LAYER FOR LABELS ---
+  geom_text_repel(
+    data = top_10_genes_Pro,         # Use the new data frame for labels
+    aes(label = Gene),          # Tell ggplot that the 'Gene' column is the label
+    size = 3.5,                 # Adjust font size
+    box.padding = 1,          # Increase space between label and point
+    max.overlaps = Inf,         # Ensure all labels are shown
+    color = "black"             # Set a contrasting color for the labels
+  )  
+Volcanoplot_PBSvsBt_Pro
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBt_Pro.pdf", plot = Volcanoplot_PBSvsBt_Pro, width = 8, height = 4, device = "pdf")
+
+
+# Count the number of genes in each category
+diff_expression_counts_Pro <- table(foldchange_Pro_genes$DiffExpression)
+
+# Extract counts for "Up in Bt" and "Down in Bt"
+up_in_bt_count_Pro <- diff_expression_counts_Pro["Up in Bt"]
+down_in_bt_count_Pro <- diff_expression_counts_Pro["Down in Bt"]
+
+# Print the counts
+cat("Number of genes significantly upregulated in Bt: ", up_in_bt_count_Pro, "\n")
+cat("Number of genes significantly downregulated in Bt: ", down_in_bt_count_Pro, "\n")
+
+
+```
+
+
+```{r}
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_genes_PBSvsBt_Dis", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_genes_PBSvsBt_Dis_summary <- data.frame(
+  Gene = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  P_Value_Treatment_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_PBSvsBt_Dis_summary, term) {
+  coef_table <- as.data.frame(model_PBSvsBt_Dis_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_PBSvsBt_Dis$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_PBSvsBt_Dis, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lm(log2(NormalizedCount) ~ Treatment + Sex + Treatment*Sex, data = subset_data)
+
+  # Obtain the summary of the model
+  model_PBSvsBt_Dis_summary <- summary(model)
+
+  # Extract the p-values for Treatment and Sex
+  p_treatment <- safe_extract_pvalue(model_PBSvsBt_Dis_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_PBSvsBt_Dis_summary, "SexMale")
+  p_treatment_sex <- safe_extract_pvalue(model_PBSvsBt_Dis_summary, "TreatmentBacteroides:SexMale")
+
+  # Add to the summary dataframe
+  linear_models_genes_PBSvsBt_Dis_summary <- rbind(linear_models_genes_PBSvsBt_Dis_summary, data.frame(
+    Gene = gene,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Treatment_Sex = p_treatment_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_genes_PBSvsBt_Dis/model_", gene, ".txt")
+  capture.output(model_PBSvsBt_Dis_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(model_PBSvsBt_Dis_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  # Check if p_value is NA
+  if (is.na(p_value)) {
+    return("NA")
+  }
+
+  if (p_value < 0.001) {
+    return("***")
+  } else if (p_value < 0.01) {
+    return("**")
+  } else if (p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_genes_PBSvsBt_Dis_summary$Significance_Treatment <- sapply(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment, categorize_significance)
+
+linear_models_genes_PBSvsBt_Dis_summary$Significance_Sex <- sapply(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Sex, categorize_significance)
+
+linear_models_genes_PBSvsBt_Dis_summary$Significance_Treatment_Sex <- sapply(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment_Sex, categorize_significance)
+
+
+# View the updated dataframe
+linear_models_genes_PBSvsBt_Dis_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment, method = "bonferroni")
+
+linear_models_genes_PBSvsBt_Dis_summary$Significance_Sex_Bonferonni <- p.adjust(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Sex, method = "bonferroni")
+
+linear_models_genes_PBSvsBt_Dis_summary$Significance_Treatment_Sex_Bonferonni <- p.adjust(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment_Sex, method = "bonferroni")
+
+
+#Add annotations and cell type to p value summary
+linear_models_genes_PBSvsBt_Dis_annotated_summary <- merge(linear_models_genes_PBSvsBt_Dis_summary, annotations_df, by = "Gene")
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_genes_PBSvsBt_Dis_annotated_summary, "linear_models_genes_PBSvsBt_Dis_summary.csv", row.names = FALSE)
+
+
+#FDR Correction
+linear_models_genes_PBSvsBt_Dis_summary$FDRadjusted_p_value <- p.adjust(linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment, method = "BH")
+
+
+```
+
+# Make a volcano plot that identifies genes significantly differentially expressed in Bt vs PBS treatment in the Dis
+https://biostatsquid.com/volcano-plots-r-tutorial/
+```{r}
+
+# Filter data for PBS and Bt
+Dis_PBS_data <- Nano_normalized_PBSvsBt_Dis[Nano_normalized_PBSvsBt_Dis$Treatment == 'PBS', ]
+Dis_Bt_data <- Nano_normalized_PBSvsBt_Dis[Nano_normalized_PBSvsBt_Dis$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both PBS and Bt groups
+median_PBS_Dis <- aggregate(NormalizedCount ~ Gene, Dis_PBS_data, median)
+median_Bt_Dis <- aggregate(NormalizedCount ~ Gene, Dis_Bt_data, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_Dis_genes <- merge(median_PBS_Dis, median_Bt_Dis, by = "Gene")
+
+# Calculate fold changes
+foldchange_Dis_genes$FoldChange <- foldchange_Dis_genes$NormalizedCount.y / foldchange_Dis_genes$NormalizedCount.x
+
+# Rename columns for clarity
+names(foldchange_Dis_genes) <- c("Gene", "median_PBS", "median_Bt", "FoldChange")
+
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_Dis_genes <- merge(foldchange_Dis_genes, linear_models_genes_PBSvsBt_Dis_summary[, c("Gene", "P_Value_Treatment")], by = "Gene", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on PBS vs Bt Dis genes 
+```{r}
+# Transform the data
+foldchange_Dis_genes$log2FoldChange <- log2(foldchange_Dis_genes$FoldChange)
+foldchange_Dis_genes$negLog10PValue <- -log10(foldchange_Dis_genes$P_Value_Treatment)
+
+# Add a new column "DiffExpressicon" to the foldchange_serum DataFrame
+foldchange_Dis_genes$DiffExpression <- ifelse(foldchange_Dis_genes$P_Value_Treatment< 0.05, 
+                                          ifelse(foldchange_Dis_genes$FoldChange > 1, "Up in Bt", 
+                                                 ifelse(foldchange_Dis_genes$FoldChange < 1, "Down in Bt", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+# Create a new data frame containing only the top 10 genes by negLog10PValue
+top_10_genes_Dis <- foldchange_Dis_genes %>%
+  slice_max(order_by = negLog10PValue, n = 10)
+
+txk_only_df <- foldchange_Dis_genes %>% filter(Gene == "Txk")
+
+top_10_genes_Dis <- top_10_genes_Dis %>% bind_rows(txk_only_df)
+
+# You can print this to double-check
+print(top_10_genes_Dis)
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBt_Dis<- ggplot(data = foldchange_Dis_genes, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bt" = "#00AFBB", "Down in Bt" = "#bb0c00", "Not Significant" = "grey"))+
+  theme(plot.title = element_text(size = 12)) + # Reduced font size for title
+  
+  # --- ADD THIS LAYER FOR LABELS ---
+  geom_text_repel(
+    data = top_10_genes_Dis,         # Use the new data frame for labels
+    aes(label = Gene),          # Tell ggplot that the 'Gene' column is the label
+    size = 3.5,                 # Adjust font size
+    box.padding = 0.8,          # Increase space between label and point
+    max.overlaps = Inf,         # Ensure all labels are shown
+    color = "black"             # Set a contrasting color for the labels
+  )  
+
+Volcanoplot_PBSvsBt_Dis
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBt_Dis.pdf", plot = Volcanoplot_PBSvsBt_Dis, width = 8, height = 4, device = "pdf")
+
+
+# Count the number of genes in each category
+diff_expression_counts_Dis <- table(foldchange_Dis_genes$DiffExpression)
+
+# Extract counts for "Up in Bt" and "Down in Bt"
+up_in_bt_count_Dis <- diff_expression_counts_Dis["Up in Bt"]
+down_in_bt_count_Dis <- diff_expression_counts_Dis["Down in Bt"]
+
+# Print the counts
+cat("Number of genes significantly upregulated in Bt: ", up_in_bt_count_Dis, "\n")
+cat("Number of genes significantly downregulated in Bt: ", down_in_bt_count_Dis, "\n")
+
+```
+
+#Make a table that outlines the Pathways that are regulated by Bacteroides in the SI
+```{r}
+# Assuming df is your dataframe
+linear_models_genes_PBSvsBt_SI_annotated_summary_filtered_df <- linear_models_genes_PBSvsBt_SI_annotated_summary[linear_models_genes_PBSvsBt_SI_annotated_summary$P_Value_Treatment <= 0.05, ]
+
+# Splitting the Pathways column and unlisting it
+linear_models_genes_PBSvsBt_SI_annotated_summary_filtered_df_pathways_list <- unlist(strsplit(as.character(linear_models_genes_PBSvsBt_SI_annotated_summary_filtered_df$Pathways), ", "))
+
+# Counting occurrences of each pathway
+linear_models_genes_PBSvsBt_SI_annotated_summary_pathway_counts <- table(linear_models_genes_PBSvsBt_SI_annotated_summary_filtered_df_pathways_list)
+
+# Creating a new dataframe
+linear_models_genes_PBSvsBt_SI_annotated_summary_new_df <- data.frame(Pathway = names(linear_models_genes_PBSvsBt_SI_annotated_summary_pathway_counts), Counts = as.integer(linear_models_genes_PBSvsBt_SI_annotated_summary_pathway_counts))
+
+```
+
+#Make a table that outlines the Pathways that are regulated by Bacteroides in the Cecum
+```{r}
+# Assuming df is your dataframe
+linear_models_genes_PBSvsBt_Cec_annotated_summary_filtered_df <- linear_models_genes_PBSvsBt_Cec_annotated_summary[linear_models_genes_PBSvsBt_Cec_annotated_summary$P_Value_Treatment <= 0.05, ]
+
+# Splitting the Pathways column and unlisting it
+linear_models_genes_PBSvsBt_Cec_annotated_summary_filtered_df_pathways_list <- unlist(strsplit(as.character(linear_models_genes_PBSvsBt_Cec_annotated_summary_filtered_df$Pathways), ", "))
+
+# Counting occurrences of each pathway
+linear_models_genes_PBSvsBt_Cec_annotated_summary_pathway_counts <- table(linear_models_genes_PBSvsBt_Cec_annotated_summary_filtered_df_pathways_list)
+
+# Creating a new dataframe
+linear_models_genes_PBSvsBt_Cec_annotated_summary_new_df <- data.frame(Pathway = names(linear_models_genes_PBSvsBt_Cec_annotated_summary_pathway_counts), Counts = as.integer(linear_models_genes_PBSvsBt_Cec_annotated_summary_pathway_counts))
+
+```
+
+#Make a table that outlines the Pathways that are regulated by Bacteroides in the Proximal Colon
+```{r}
+# Assuming df is your dataframe
+linear_models_genes_PBSvsBt_Pro_annotated_summary_filtered_df <- linear_models_genes_PBSvsBt_Pro_annotated_summary[linear_models_genes_PBSvsBt_Pro_annotated_summary$P_Value_Treatment <= 0.05, ]
+
+# Splitting the Pathways column and unlisting it
+linear_models_genes_PBSvsBt_Pro_annotated_summary_filtered_df_pathways_list <- unlist(strsplit(as.character(linear_models_genes_PBSvsBt_Pro_annotated_summary_filtered_df$Pathways), ", "))
+
+# Counting occurrences of each pathway
+linear_models_genes_PBSvsBt_Pro_annotated_summary_pathway_counts <- table(linear_models_genes_PBSvsBt_Pro_annotated_summary_filtered_df_pathways_list)
+
+# Creating a new dataframe
+linear_models_genes_PBSvsBt_Pro_annotated_summary_new_df <- data.frame(Pathway = names(linear_models_genes_PBSvsBt_Pro_annotated_summary_pathway_counts), Counts = as.integer(linear_models_genes_PBSvsBt_Pro_annotated_summary_pathway_counts))
+
+```
+
+#Make a table that outlines the Pathways that are regulated by Bacteroides in the Dis Colon
+```{r}
+# Assuming df is your dataframe
+linear_models_genes_PBSvsBt_Dis_annotated_summary_filtered_df <- linear_models_genes_PBSvsBt_Dis_annotated_summary[linear_models_genes_PBSvsBt_Dis_annotated_summary$P_Value_Treatment <= 0.05, ]
+
+# Splitting the Pathways column and unlisting it
+linear_models_genes_PBSvsBt_Dis_annotated_summary_filtered_df_pathways_list <- unlist(strsplit(as.character(linear_models_genes_PBSvsBt_Dis_annotated_summary_filtered_df$Pathways), ", "))
+
+# Counting occurrences of each pathway
+linear_models_genes_PBSvsBt_Dis_annotated_summary_pathway_counts <- table(linear_models_genes_PBSvsBt_Dis_annotated_summary_filtered_df_pathways_list)
+
+# Creating a new dataframe
+linear_models_genes_PBSvsBt_Dis_annotated_summary_new_df <- data.frame(Pathway = names(linear_models_genes_PBSvsBt_Dis_annotated_summary_pathway_counts), Counts = as.integer(linear_models_genes_PBSvsBt_Dis_annotated_summary_pathway_counts))
+
+```
+
+
+#Generate a heatmap of region on the x axis and treatment groups clustered on y axis
+```{r}
+Nano_normalized_PBSvsBt
+
+#Clustrer Nano_normalized_PBSvsBt on y axis based on what pathways they belong to
+# Merge the data frames based on the 'Gene' column
+merged_Nano_normalized_PBSvsBt <- Nano_normalized_PBSvsBt %>% 
+  left_join(annotations_df, by = "Gene")
+
+
+
+unique_values <- unique(Nano_normalized_PBSvsBt$ShortLabel)
+
+#Factor Treatment
+Nano_normalized_PBSvsBt$ShortLabel <- factor(Nano_normalized_PBSvsBt$ShortLabel, levels = c("PBS", "Bacteroides"))
+
+
+#Make a heatmap of the SI
+#Creating the heatmap
+ggplot(Nano_normalized_PBSvsBt, aes(x = ShortLabel, y = Gene, fill = log2(NormalizedCount))) +
+  geom_tile() +  # Use geom_tile for heatmap
+  scale_fill_gradient(low = "blue", high = "red") +  # Adjust color gradient
+  theme_minimal() +
+  labs(fill = "Normalized Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) # Rotate x-axis labels if needed
+
+
+
+pheatmap(Nano_normalized_PBSvsBt, 
+         annotation_row=response,
+         scale = 'row', 
+         cluster_cols = FALSE, 
+         cluster_rows = TRUE)
+
+
+```
+
+#Print a plot of Normalized Counts on y axis and the treatment groups on x axis, faceted by region
+
+```{r}
+#Merge the dataframe with annotationos
+Nano_normalized_long_df_annotated <- merge(Nano_normalized_long_df, annotations_df, by = "Gene")
+
+
+#subset the Nano_normalized_long_df dataframe to only include G couupled receptors, and toll receptors
+# List of specific genes
+genes_of_interest <- c("Adgre5", "Adgrg3", "Ticam1", "Tirap", "Tlr1", "Tlr2", "Tlr3", "Tlr4", "Tlr5", "Tlr6", "Tlr7", "Tlr8", "Tlr9")
+
+# Subset the dataframe
+Nano_normalized_long_df_annotated_receptors <- Nano_normalized_long_df_annotated[Nano_normalized_long_df_annotated$Gene %in% genes_of_interest, ]
+
+
+
+#Factor Treatment and Biogeography
+Nano_normalized_long_df_annotated_receptors$Treatment <- factor(Nano_normalized_long_df_annotated_receptors$Treatment, levels = c("PBS", "Bacteroides", "Baseline"))
+
+Nano_normalized_long_df_annotated_receptors$Biogeography <- factor(Nano_normalized_long_df_annotated_receptors$Biogeography, levels = c("SI", "Cec", "Pro", "Dis"))
+
+
+# Assuming your dataframe is named df
+toll_like_receptors_acrossthegut <- ggplot(Nano_normalized_long_df_annotated_receptors, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  facet_wrap(~ Gene, scales = "free_y") +  # Free y-axis scale for each facet
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  labs(y = "Normalized Count", x = "Biogeography", color = "Treatment") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+
+# Save the plot as a PDF
+ggsave("toll_like_receptors_acrossthegut.pdf", plot = toll_like_receptors_acrossthegut, width = 8, height = 4, device = "pdf")
+
+
+
+```
+
+
+#Compare baseline to PBS
+```{r}
+
+Nano_normalized_BasevsPBS_SI$Treatment <- factor(Nano_normalized_BasevsPBS_SI$Treatment, levels = c("Baseline", "PBS"))
+Nano_normalized_BasevsPBS_SI <- subset(Nano_normalized_BasevsPBS_SI, Treatment %in% c("Baseline", "PBS"))
+
+# Print the unique values in the Treatment column
+unique_values <- unique(Nano_normalized_BasevsPBS_SI$Treatment)
+print(unique_values)
+
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_genes_BasevsPBS_SI", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_genes_BasevsPBS_SI_summary <- data.frame(
+  Gene = character(),
+  P_Value_Treatment = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_BasevsPBS_SI_summary, term) {
+  coef_table <- as.data.frame(model_BasevsPBS_SI_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_BasevsPBS_SI$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_BasevsPBS_SI, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lm(log2(NormalizedCount) ~ Treatment, data = subset_data)
+
+  # Obtain the summary of the model
+  model_BasevsPBS_SI_summary <- summary(model)
+
+  # Extract the p-values for Treatment and Sex
+  p_treatment <- safe_extract_pvalue(model_BasevsPBS_SI_summary, "TreatmentPBS")
+
+  # Add to the summary dataframe
+  linear_models_genes_BasevsPBS_SI_summary <- rbind(linear_models_genes_BasevsPBS_SI_summary, data.frame(
+    Gene = gene,
+    P_Value_Treatment = p_treatment
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_genes_BasevsPBS_SI/model_", gene, ".txt")
+  capture.output(model_BasevsPBS_SI_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(model_BasevsPBS_SI_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_genes_BasevsPBS_SI_summary$Significance_Treatment <- sapply(linear_models_genes_BasevsPBS_SI_summary$P_Value_Treatment, categorize_significance)
+
+# View the updated dataframe
+linear_models_genes_BasevsPBS_SI_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_genes_BasevsPBS_SI_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_genes_BasevsPBS_SI_summary$P_Value_Treatment, method = "bonferroni")
+
+linear_models_genes_BasevsPBS_SI_summary$Significance_Treatment_Bonferonni <- sapply(linear_models_genes_BasevsPBS_SI_summary$P_Value_Treatment_Bonferroni, categorize_significance)
+
+#Add annotations and cell type to p value summary
+linear_models_genes_BasevsPBS_SI_annotated_summary <- merge(linear_models_genes_BasevsPBS_SI_summary, annotations_df, by = "Gene")
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_genes_BasevsPBS_SI_annotated_summary, "linear_models_genes_BasevsPBS_SI_summary.csv", row.names = FALSE)
+
+
+
+
+
+```
+
+
+# Make a volcano plot that identifies genes significantly differentially expressed in Base vs PBS treatment in the SI
+https://biostatsquid.com/volcano-plots-r-tutorial/
+```{r}
+linear_models_genes_BasevsPBS_SI_summary <- read_csv("linear_models_genes_BasevsPBS_SI_summary.csv")
+
+
+# Filter data for nonCF and CF
+SI_Base_data <- Nano_normalized_BasevsBase_SI[Nano_normalized_BasevsBase_SI$Treatment == 'Baseline', ]
+SI_PBS_data <- Nano_normalized_BasevsBase_SI[Nano_normalized_BasevsBase_SI$Treatment == 'PBS', ]
+
+# Calculate median values for each cytokine in both Base and PBS groups
+median_Base_SI <- aggregate(NormalizedCount ~ Gene, SI_Base_data, median)
+median_PBS_SI <- aggregate(NormalizedCount ~ Gene, SI_PBS_data, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_SI_genes <- merge(median_Base_SI, median_PBS_SI, by = "Gene")
+
+# Calculate fold changes
+foldchange_SI_genes$FoldChange <- foldchange_SI_genes$NormalizedCount.y / foldchange_SI_genes$NormalizedCount.x
+
+# Rename columns for clarity
+names(foldchange_SI_genes) <- c("Gene", "median_Base", "median_PBS", "FoldChange")
+
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_SI_genes <- merge(foldchange_SI_genes, linear_models_genes_BasevsPBS_SI_summary[, c("Gene", "P_Value_Treatment")], by = "Gene", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on Base vs PBS SI genes 
+```{r}
+# Transform the data
+foldchange_SI_genes$log2FoldChange <- log2(foldchange_SI_genes$FoldChange)
+foldchange_SI_genes$negLog10PValue <- -log10(foldchange_SI_genes$P_Value_Treatment)
+
+# Add a new column "DiffExpression" to the foldchange_serum DataFrame
+foldchange_SI_genes$DiffExpression <- ifelse(foldchange_SI_genes$P_Value_Treatment< 0.05, 
+                                          ifelse(foldchange_SI_genes$FoldChange > 1, "Up in PBS", 
+                                                 ifelse(foldchange_SI_genes$FoldChange < 1, "Down in PBS", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+
+# Create a basic volcano plot
+Volcanoplot_BasevsPBS_SI<- ggplot(data = foldchange_SI_genes, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in PBS" = "#00AFBB", "Down in PBS" = "#bb0c00", "Not Significant" = "grey"))+
+  geom_text(aes(label=Gene), vjust = 2, hjust = 0.75, size = 2, check_overlap = TRUE)+
+  ggtitle("Genes Differentially Expressed Between Base and PBS Gavaged Mice after LPS Challenge in Small Intestines")+
+  theme(plot.title = element_text(size = 12)) # Reduced font size for title
+
+Volcanoplot_BasevsPBS_SI
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_BasevsPBS_SI.pdf", plot = Volcanoplot_BasevsPBS_SI, width = 8, height = 4, device = "pdf")
+
+
+
+```
+
+#Determine which genes are differentially expressed across the gut
+```{r}
+#Subset only baseline data
+Nano_normalized_Base <- subset(Nano_normalized_long_df, Treatment %in% c("Baseline"))
+Nano_normalized_Base$MouseID <- paste(Nano_normalized_Base$Cage, Nano_normalized_Base$Mouse, sep = "_")
+
+#Factor Treatment
+Nano_normalized_Base$Biogeography <- factor(Nano_normalized_Base$Biogeography, levels = c("SI", "Cec", "Pro", "Dis"))
+
+
+#Factor the Biogeography to be SI, Cec, Pro, and then Dis
+
+###############
+
+# Ensure the 'linear_models_gene' directory exists
+dir.create("linear_models_diffgenes_acrossgut_atbaseline", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_diffgenes_baseline_summary <- data.frame(
+  Gene = character(),
+  P_Value_Biogeography_Cec = numeric(),
+  P_Value_Biogeography_Pro = numeric(),
+  P_Value_Biogeography_Dis = numeric(),
+  P_Value_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_summary, term) {
+  coef_table <- as.data.frame(model_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique gene
+for(gene in unique(Nano_normalized_Base$Gene)) {
+  # Subset data for the current gene
+  subset_data <- subset(Nano_normalized_Base, Gene == gene)
+
+  # Fit the mixed linear model
+  model <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|MouseID), data = subset_data)
+
+  # Obtain the summary of the model
+  model_summary <- summary(model)
+
+    # Extract the p-values for Biogeography and Sex
+  p_biogeography_cec <- safe_extract_pvalue(model_summary, "BiogeographyCec")
+  p_biogeography_pro <- safe_extract_pvalue(model_summary, "BiogeographyPro")
+  p_biogeography_dis <- safe_extract_pvalue(model_summary, "BiogeographyDis")
+  p_sex <- safe_extract_pvalue(model_summary, "SexMale")
+
+  # Add to the summary dataframe
+  linear_models_diffgenes_summary <- rbind(linear_models_diffgenes_summary, data.frame(
+    Gene = gene,
+    P_Value_Biogeography_Cec = p_biogeography_cec,
+    P_Value_Biogeography_Pro = p_biogeography_pro,
+    P_Value_Biogeography_Dis = p_biogeography_dis,
+    P_Value_Sex = p_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_diffgenes_acrossgut_atbaseline/model_", gene, ".txt")
+  capture.output(model_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(linear_models_diffgenes_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  # Check if p_value is NA
+  if (is.na(p_value)) {
+    return("NA")
+  }
+
+  if (p_value < 0.001) {
+    return("***")
+  } else if (p_value < 0.01) {
+    return("**")
+  } else if (p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_diffgenes_baseline_summary$Significance_Biogeography <- sapply(linear_models_diffgenes_baseline_summary$P_Value_Biogeography, categorize_significance)
+
+linear_models_diffgenes_baseline_summary$Significance_Sex <- sapply(linear_models_diffgenes_baseline_summary$P_Value_Sex, categorize_significance)
+
+
+
+# View the updated dataframe
+linear_models_diffgenes_baseline_summary
+
+# Apply Bonferroni correction to the P_Value_Treatment column
+linear_models_diffgenes_baseline_summary$P_Value_Biogeography_Bonferroni <- p.adjust(linear_models_diffgenes_baseline_summary$P_Value_Biogeography, method = "bonferroni")
+
+linear_models_diffgenes_baseline_summary$Significance_Sex_Bonferonni <- p.adjust(linear_models_diffgenes_baseline_summary$P_Value_Sex, method = "bonferroni")
+
+
+
+#Add annotations and cell type to p value summary
+linear_models_diffgenes_baseline_summary <- merge(linear_models_diffgenes_baseline_summary, annotations_df, by = "Gene")
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_diffgenes_baseline_summary, "linear_models_diffgenes_baseline_summary.csv", row.names = FALSE)
+
+
+```
+#Make a heatmap
+```{r}
+#Reformat data to have all samples on x axis in order of importance (SI, Cec, Pro, Dis) and Treatment groups PBS and Bacteroides
+#Merge genes that were significant only in each group
+
+NormalizedHostResponseCounts_failedsamplesrm
+
+#Dataframes
+linear_models_genes_PBSvsBt_SI_summary <- read_csv("linear_models_genes_PBSvsBt_SI_summary.csv")
+linear_models_genes_PBSvsBt_Cec_summary <- read_csv("linear_models_genes_PBSvsBt_Cec_summary.csv")
+linear_models_genes_PBSvsBt_Pro_summary <- read_csv("linear_models_genes_PBSvsBt_Pro_summary.csv")
+linear_models_genes_PBSvsBt_Dis_summary <- read_csv("linear_models_genes_PBSvsBt_Dis_summary.csv")
+
+#filter significant genes in each excel
+PBSvsBt_SI_sig_genes<- linear_models_genes_PBSvsBt_SI_summary %>%
+  filter(P_Value_Treatment <= 0.01)
+
+PBSvsBt_Cec_sig_genes<- linear_models_genes_PBSvsBt_Cec_summary %>%
+  filter(P_Value_Treatment <= 0.01)
+
+PBSvsBt_Pro_sig_genes<- linear_models_genes_PBSvsBt_Pro_summary %>%
+  filter(P_Value_Treatment <= 0.01)
+
+PBSvsBt_Dis_sig_genes<- linear_models_genes_PBSvsBt_Dis_summary %>%
+  filter(P_Value_Treatment <= 0.051)
+
+#make a list of unique genes in each of these dataframes 
+
+# Extracting unique genes from each dataframe
+unique_genes_PBSvsBt_SI <- unique(PBSvsBt_SI_sig_genes$Gene)
+unique_genes_PBSvsBt_Cec <- unique(PBSvsBt_Cec_sig_genes$Gene)
+unique_genes_PBSvsBt_Pro <- unique(PBSvsBt_Pro_sig_genes$Gene)
+unique_genes_PBSvsBt_Dis <- unique(PBSvsBt_Dis_sig_genes$Gene)
+
+# Combine into a list
+list_unique_genes <- list(
+  SI = unique_genes_PBSvsBt_SI,
+  Cec = unique_genes_PBSvsBt_Cec,
+  Pro = unique_genes_PBSvsBt_Pro,
+  Dis = unique_genes_PBSvsBt_Dis
+)
+
+# Create a dataframe for each region with unique genes
+df_SI <- data.frame(Gene = unique_genes_PBSvsBt_SI, Region = "SmallIntestine")
+df_Cec <- data.frame(Gene = unique_genes_PBSvsBt_Cec, Region = "Cecum")
+df_Pro <- data.frame(Gene = unique_genes_PBSvsBt_Pro, Region = "ProximalColon")
+df_Dis <- data.frame(Gene = unique_genes_PBSvsBt_Dis, Region = "DistalColon")
+
+# Combine all dataframes into a single dataframe
+combined_unique_genes_df <- bind_rows(df_SI, df_Cec, df_Pro, df_Dis)
+
+#Remove "Region" and remmove duplicate genges
+# Remove the "Region" column
+combined_unique_genes_df <- combined_unique_genes_df %>% 
+  select(-Region)
+
+combined_unique_genes_df <- combined_unique_genes_df %>%
+  distinct(Gene, .keep_all = TRUE)
+
+
+# Get the unique ShortLabel values
+unique_labels <- unique(Nano_normalized_PBSvsBt$ShortLabel)
+
+# Loop over each unique ShortLabel
+for(label in unique_labels) {
+    # Subset the dataframe based on the current ShortLabel
+    temp_df <- Nano_normalized_PBSvsBt[Nano_normalized_PBSvsBt$ShortLabel == label, ]
+
+    # Keep only the desired columns
+    temp_df <- temp_df[, c("Gene", "NormalizedCount")]
+    
+    colnames(temp_df)[colnames(temp_df) == "NormalizedCount"] <- label
+
+    # Dynamically create a dataframe for each ShortLabel
+    assign(paste0("df_", label), temp_df, envir = .GlobalEnv)
+}
+
+# Get a list of all the dataframe names created in the loop
+df_names <- paste0("df_", unique_labels)
+
+# Use mget to retrieve all dataframes from their names
+dfs_to_merge <- mget(df_names, envir = .GlobalEnv)
+
+# Merge all dataframes by 'Gene'
+result_df <- Reduce(function(x, y) merge(x, y, by = "Gene", all = TRUE), dfs_to_merge)
+
+# Subset result_df based on combined_unique_genes_df
+result_df_filtered <- result_df %>%
+                     filter(Gene %in% combined_unique_genes_df$Gene)
+
+#Make gene the rownames
+rownames(result_df_filtered) <- result_df_filtered$Gene
+
+# Remove the now redundant 'Gene' column
+result_df_filtered <- result_df_filtered[, -which(names(result_df_filtered) == "Gene")]
+
+write.csv(result_df_filtered, "result_df_filtered2.csv", row.names = TRUE)
+
+
+# List of ordered column names
+ordered_columns <- c("3-2 SI", "5-2 SI", "11-2 SI",
+                     "3-1 Cec", "3-2 Cec", "3-3 Cec", "5-1 Cec", "5-2 Cec", "5-3 Cec",
+                    "9-1 Cec", "9-2 Cec", "9-3 Cec", "11-1 Cec", "11-2 Cec", "11-3 Cec",
+                     "3-1 Pro", "3-2 Pro", "3-3 Pro", "5-1 Pro", "5-2 Pro", "5-3 Pro",
+                     "9-1 Pro", "9-2 Pro", "9-3 Pro", "11-1 Pro", "11-2 Pro", "11-3 Pro",
+                     "3-1 Dis", "3-2 Dis", "5-1 Dis", "5-3 Dis", 
+                     "9-1 Dis", "9-2 Dis", "9-3 Dis", "11-1 Dis", "11-2 Dis", "11-3 Dis")
+
+
+# Factor the column names
+colnames(result_df_filtered)
+
+
+
+
+# Creating the heatmap
+
+cal_z_score <- function(x){
+  (x - mean(x)) / sd(x)
+}
+ 
+data_subset_norm <- as.data.frame(t(apply(result_df_filtered, 1, cal_z_score)))
+data_subset_norm <- data_subset_norm[ordered_columns]
+pheatmap(data_subset_norm)
+
+pheatmap(data_subset_norm, 
+         scale = 'row', 
+         cluster_cols = FALSE, 
+         cluster_rows = TRUE)
+```
+
+
+
+
+#Make a venn diagram
+
+```{r}
+if (!require(devtools)) install.packages("devtools")
+devtools::install_github("yanlinlin82/ggvenn")
+
+library(ggvenn)
+
+linear_models_genes_PBSvsBt_SI_summary <- read_csv("linear_models_genes_PBSvsBt_SI_summary.csv")
+linear_models_genes_PBSvsBt_Cec_summary <- read_csv("linear_models_genes_PBSvsBt_Cec_summary.csv")
+linear_models_genes_PBSvsBt_Pro_summary <- read_csv("linear_models_genes_PBSvsBt_Pro_summary.csv")
+linear_models_genes_PBSvsBt_Dis_summary <- read_csv("linear_models_genes_PBSvsBt_Dis_summary.csv")
+
+
+# Extract genes with p-value <= 0.05 from each dataframe
+genes_small_intestine <- linear_models_genes_PBSvsBt_SI_summary$Gene[linear_models_genes_PBSvsBt_SI_summary$P_Value_Treatment <= 0.05]
+genes_cecum <- linear_models_genes_PBSvsBt_Cec_summary$Gene[linear_models_genes_PBSvsBt_Cec_summary$P_Value_Treatment <= 0.05]
+genes_proximal_colon <- linear_models_genes_PBSvsBt_Pro_summary$Gene[linear_models_genes_PBSvsBt_Pro_summary$P_Value_Treatment <= 0.05]
+genes_distal_colon <- linear_models_genes_PBSvsBt_Dis_summary$Gene[linear_models_genes_PBSvsBt_Dis_summary$P_Value_Treatment <= 0.05]
+
+
+# Create a list of these gene sets
+gene_sets <- list(
+  "Small Intestine" = genes_small_intestine,
+  "Cecum" = genes_cecum,
+  "Proximal Colon" = genes_proximal_colon,
+  "Distal Colon" = genes_distal_colon
+)
+
+
+# Generate the Venn diagram
+venn.plot <- ggvenn(
+  gene_sets,
+  count = TRUE,
+  show_elements = FALSE,
+  show_percentage = FALSE,
+  fill_color = c("darkblue", "royalblue", "lightblue", "#D1E8EE"))
+
+venn.plot
+
+
+# Save the plot as a PDF
+ggsave("venn.plot.pdf", plot = venn.plot, width = 8, height = 4, device = "pdf")
+
+#Find the gene that is reglated in the cecum, proximal colon, and dsital colon:
+
+# Find common genes in Proximal Colon, and Distal Colon
+common_Bt_genes <- Reduce(intersect, list(genes_proximal_colon, genes_distal_colon))
+
+# Output the common genes
+print(common_Bt_genes)
+
+
+#make a df that has the genes in the venn diagram
+unique_sets <- list(unique(genes_small_intestine), unique(genes_cecum), unique(genes_proximal_colon), unique(genes_distal_colon))
+
+unique_gene_set_list <- unlist(unique_sets)
+unique_gene_set_list <- as.character(unique_gene_set_list)
+
+as.data.frame(venn_plot_genes)
+venn_plot_genes$gene_names <- as.data.frame(unique_gene_set_list)
+
+
+```
+
+
+#Make a plot of Txk Expression along the gut and do stats
+```{r}
+
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Txk_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Txk")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+pro_dis <- c("Pro", "Dis")
+
+# Subset Nano_normalized_long_df for the specified treatments
+Nano_normalized_long_Txk_df <- Nano_normalized_long_Txk_df %>%
+  filter(Treatment %in% pvb_treatment)
+
+Nano_normalized_long_Txk_df <- Nano_normalized_long_Txk_df %>%
+  filter(Biogeography %in% pro_dis)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Txk_df$Treatment <- factor(Nano_normalized_long_Txk_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_Txk_df$Biogeography <- factor(Nano_normalized_long_Txk_df$Biogeography, 
+                                                        levels = c("Pro", "Dis"))
+
+Nano_normalized_long_Txk_df$NormalizedCount <- as.numeric(Nano_normalized_long_Txk_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Txk_df_pointplot <- ggplot(Nano_normalized_long_Txk_df, aes( x=Treatment, y=NormalizedCount, color = Treatment, shape = Biogeography))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  theme_bw()+
+  facet_wrap(~Sex)+
+  scale_shape_manual(values = c(7, 10)) +
+  scale_color_manual(values = c( "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+
+
+
+ggsave("Nano_normalized_long_Txk_df_pointplott.pdf", plot = Nano_normalized_long_Txk_df_pointplot
+, device = "pdf", width = 4, height = 2)
+
+
+
+
+#Run stats Txk
+
+
+
+  pvb_model_txk <- lm(log2(NormalizedCount) ~ Treatment + Sex + Treatment*Sex , data = Nano_normalized_long_Txk_df)
+summary(pvb_model_txk)
+
+
+
+```
+
+#Make a plot of Atg12 Expression in the cecum and do stats
+```{r}
+
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Atg12_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Atg12")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_Atg12_df <- Nano_normalized_long_Atg12_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Cec"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Atg12_df$Treatment <- factor(Nano_normalized_long_Atg12_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_Atg12_df$NormalizedCount <- as.numeric(Nano_normalized_long_Atg12_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Atg12_df_pointplot <- ggplot(Nano_normalized_long_Atg12_df, aes( x=Treatment, y=NormalizedCount, color = Treatment, shape = Sex))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  theme_bw()+
+  facet_wrap(~Gene)+
+  scale_color_manual(values = c( "Baseline"="lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25) + # Add this line to connect points for each MouseID
+  ylim(500, 1500)  # Set Y axis limits
+
+
+
+Nano_normalized_long_Atg12_df_pointplot
+
+
+ggsave("Nano_normalized_long_Atg12_df_pointplot_sextogether.pdf", plot = Nano_normalized_long_Atg12_df_pointplot
+, device = "pdf", width = 3.2, height = 3)
+
+
+#put black line around triangles with male: 
+
+Nano_normalized_long_Atg12_df_pointplot_claude <- ggplot(Nano_normalized_long_Atg12_df, 
+                                                    aes(x = Treatment, y = NormalizedCount)) +
+  geom_point(data = subset(Nano_normalized_long_Atg12_df, Sex == "Female"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "grey50", stroke = 0.3) +
+  geom_point(data = subset(Nano_normalized_long_Atg12_df, Sex == "Male"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "black", stroke = 0.8) +
+  scale_shape_manual(values = c("Female" = 21, "Male" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  facet_wrap(~Gene) +
+  ylim(500, 1500)
+
+Nano_normalized_long_Atg12_df_pointplot_claude
+
+
+ggsave("Nano_normalized_long_Atg12_df_pointplot_sextogether_PR.pdf", plot = Nano_normalized_long_Atg12_df_pointplot_claude
+, device = "pdf", width = 3.2, height = 3)
+
+#Run stats atg12
+
+
+
+  pvb_model_atg12 <- lm(log2(NormalizedCount) ~ Treatment + Sex +Treatment*Sex, data = Nano_normalized_long_Atg12_df)
+summary(pvb_model_atg12)
+
+
+
+
+```
+
+#make the plots for macrophage genes for paper
+```{r}
+#cd163
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_cd163_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Cd163")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_cd163_df <- Nano_normalized_long_cd163_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Cec"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_cd163_df$Treatment <- factor(Nano_normalized_long_cd163_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_cd163_df$NormalizedCount <- as.numeric(Nano_normalized_long_cd163_df$NormalizedCount)
+
+
+
+Nano_normalized_long_cd163_df_pointplot_claude <- ggplot(Nano_normalized_long_cd163_df, 
+                                                    aes(x = Treatment, y = NormalizedCount)) +
+  geom_line(aes(group = interaction(Cage, Mouse), color = Treatment), size = 0.25) +
+  geom_point(data = subset(Nano_normalized_long_cd163_df, Sex == "Female"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "grey50", stroke = 0.3) +
+  geom_point(data = subset(Nano_normalized_long_cd163_df, Sex == "Male"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "black", stroke = 0.8) +
+  scale_shape_manual(values = c("Female" = 21, "Male" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  facet_wrap(~Gene)
+
+Nano_normalized_long_cd163_df_pointplot_claude
+
+
+ggsave("Nano_normalized_long_cd163_df_pointplot_sextogether_PR.pdf", plot = Nano_normalized_long_cd163_df_pointplot_claude
+, device = "pdf", width = 3.2, height = 3)
+
+#cd68
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_cd68_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Cd68")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_cd68_df <- Nano_normalized_long_cd68_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Cec"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_cd68_df$Treatment <- factor(Nano_normalized_long_cd68_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_cd68_df$NormalizedCount <- as.numeric(Nano_normalized_long_cd68_df$NormalizedCount)
+
+
+
+Nano_normalized_long_cd68_df_pointplot_claude <- ggplot(Nano_normalized_long_cd68_df, 
+                                                    aes(x = Treatment, y = NormalizedCount)) +
+  geom_line(aes(group = interaction(Cage, Mouse), color = Treatment), size = 0.25) +
+  geom_point(data = subset(Nano_normalized_long_cd68_df, Sex == "Female"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "grey50", stroke = 0.3) +
+  geom_point(data = subset(Nano_normalized_long_cd68_df, Sex == "Male"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "black", stroke = 0.8) +
+  scale_shape_manual(values = c("Female" = 21, "Male" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  facet_wrap(~Gene)
+
+Nano_normalized_long_cd68_df_pointplot_claude
+
+
+ggsave("Nano_normalized_long_cd68_df_pointplot_sextogether_PR.pdf", plot = Nano_normalized_long_cd68_df_pointplot_claude
+, device = "pdf", width = 3.2, height = 3)
+
+
+#cd84
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_cd84_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Cd84")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_cd84_df <- Nano_normalized_long_cd84_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Cec"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_cd84_df$Treatment <- factor(Nano_normalized_long_cd84_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_cd84_df$NormalizedCount <- as.numeric(Nano_normalized_long_cd84_df$NormalizedCount)
+
+
+
+Nano_normalized_long_cd84_df_pointplot_claude <- ggplot(Nano_normalized_long_cd84_df, 
+                                                    aes(x = Treatment, y = NormalizedCount)) +
+  geom_line(aes(group = interaction(Cage, Mouse), color = Treatment), size = 0.25) +
+  geom_point(data = subset(Nano_normalized_long_cd84_df, Sex == "Female"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "grey50", stroke = 0.3) +
+  geom_point(data = subset(Nano_normalized_long_cd84_df, Sex == "Male"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "black", stroke = 0.8) +
+  scale_shape_manual(values = c("Female" = 21, "Male" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  facet_wrap(~Gene)
+
+Nano_normalized_long_cd84_df_pointplot_claude
+
+
+ggsave("Nano_normalized_long_cd84_df_pointplot_sextogether_PR.pdf", plot = Nano_normalized_long_cd84_df_pointplot_claude
+, device = "pdf", width = 3.2, height = 3)
+
+#Ms4a4a
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_ms4a4a_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Ms4a4a")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_ms4a4a_df <- Nano_normalized_long_ms4a4a_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Cec"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_ms4a4a_df$Treatment <- factor(Nano_normalized_long_ms4a4a_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_ms4a4a_df$NormalizedCount <- as.numeric(Nano_normalized_long_ms4a4a_df$NormalizedCount)
+
+
+
+Nano_normalized_long_ms4a4a_df_pointplot_claude <- ggplot(Nano_normalized_long_ms4a4a_df, 
+                                                    aes(x = Treatment, y = NormalizedCount)) +
+  geom_line(aes(group = interaction(Cage, Mouse), color = Treatment), size = 0.25) +
+  geom_point(data = subset(Nano_normalized_long_ms4a4a_df, Sex == "Female"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "grey50", stroke = 0.3) +
+  geom_point(data = subset(Nano_normalized_long_ms4a4a_df, Sex == "Male"),
+             aes(shape = Sex, fill = Treatment),
+             position = position_jitterdodge(dodge.width = 0.5, jitter.width = 1), size = 2,
+             color = "black", stroke = 0.8) +
+  scale_shape_manual(values = c("Female" = 21, "Male" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  facet_wrap(~Gene)
+
+Nano_normalized_long_ms4a4a_df_pointplot_claude
+
+
+ggsave("Nano_normalized_long_ms4a4a_df_pointplot_sextogether_PR.pdf", plot = Nano_normalized_long_ms4a4a_df_pointplot_claude
+, device = "pdf", width = 3.2, height = 3)
+```
+
+
+
+#Make a plot of Ikbke Expression in the proximal colon and do stats
+```{r}
+
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Ikbke_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Ikbke")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_Ikbke_df <- Nano_normalized_long_Ikbke_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Pro"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Ikbke_df$Treatment <- factor(Nano_normalized_long_Ikbke_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_Ikbke_df$NormalizedCount <- as.numeric(Nano_normalized_long_Ikbke_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Ikbke_df_pointplot <- ggplot(Nano_normalized_long_Ikbke_df, aes( x=Treatment, y=NormalizedCount, color = Treatment, shape = Sex))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  theme_bw()+
+  facet_wrap(~Sex)+
+  scale_color_manual(values = c( "Baseline"="lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25) + # Add this line to connect points for each MouseID
+  ylim(140,250)
+
+
+Nano_normalized_long_Ikbke_df_pointplot
+
+
+ggsave("Nano_normalized_long_Ikbke_df_pointplot.pdf", plot = Nano_normalized_long_Ikbke_df_pointplot
+, device = "pdf", width = 4, height = 2)
+
+
+
+#Run stats ikbke
+
+
+
+  pvb_model_ikbke <- lm(log2(NormalizedCount) ~ Treatment + Sex +Treatment*Sex, data = Nano_normalized_long_Ikbke_df)
+summary(pvb_model_ikbke)
+
+
+
+```
+
+#Make a plot of Fcgr4 Expression in the distal colon and do stats
+```{r}
+
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Fcgr4_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% "Fcgr4")
+
+pvb_treatment <- c("PBS", "Bacteroides")
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_Fcgr4_df <- Nano_normalized_long_Fcgr4_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography %in% c("Dis"))
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Fcgr4_df$Treatment <- factor(Nano_normalized_long_Fcgr4_df$Treatment, 
+                                                        levels = c("Baseline", "PBS", "Bacteroides"))
+
+Nano_normalized_long_Fcgr4_df$NormalizedCount <- as.numeric(Nano_normalized_long_Fcgr4_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Fcgr4_df_pointplot <- ggplot(Nano_normalized_long_Fcgr4_df, aes( x=Treatment, y=NormalizedCount, color = Treatment, shape = Sex))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  theme_bw()+
+  facet_wrap(~Sex)+
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25) # Add this line to connect points for each MouseID
+
+Nano_normalized_long_Fcgr4_df_pointplot
+
+
+ggsave("Nano_normalized_long_Fcgr4_df_pointplot.pdf", plot = Nano_normalized_long_Fcgr4_df_pointplot
+, device = "pdf", width = 4, height = 2)
+
+
+
+#Run stats ikbke
+
+
+
+  pvb_model_ikbke <- lm(log2(NormalizedCount) ~ Treatment + Sex +Treatment*Sex, data = Nano_normalized_long_Ikbke_df)
+summary(pvb_model_ikbke)
+
+
+
+```
+
+#Make a plot of all genes that are Neutrophils 
+```{r}
+
+
+# List of genes to keep
+genes_to_keep <- c("Ceacam3", "Csf3r", "Fcgr4", "Fpr1")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_neutrophils_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% genes_to_keep)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_neutrophils_df$Treatment <- factor(Nano_normalized_long_neutrophils_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_neutrophils_df$Biogeography <- factor(Nano_normalized_long_neutrophils_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_neutrophils_df$NormalizedCount <- as.numeric(Nano_normalized_long_neutrophils_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_neutrophils_df_pointplot <- ggplot(Nano_normalized_long_neutrophils_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", nrow = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_neutrophils_df_pointplot
+
+
+ggsave("Nano_normalized_long_neutrophils_df_pointplot.pdf", plot = Nano_normalized_long_neutrophils_df_pointplot
+, device = "pdf", width = 8, height = 6)
+
+# Create the box plot
+
+Nano_normalized_long_neutrophils_df_boxplot <- ggplot(Nano_normalized_long_neutrophils_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_neutrophils_df_boxplot
+
+ggsave("Nano_normalized_long_neutrophils_df_boxplot.pdf", plot = Nano_normalized_long_neutrophils_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+
+#Run stats Ceacam3
+Nano_normalized_long_neutrophils_df_Ceacam3_base <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene == "Ceacam3" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_neutrophils_df_Ceacam3_pvb <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene == "Ceacam3" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_Ceacam3 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Ceacam3_base)
+summary(base_model_Ceacam3)
+
+  pvb_model_Ceacam3 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Ceacam3_pvb)
+summary(pvb_model_Ceacam3)
+
+
+
+#Run stats Csf3r
+Nano_normalized_long_neutrophils_df_Csf3r_base <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Csf3r"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_neutrophils_df_Csf3r_pvb <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Csf3r"& Treatment %in% c("PBS", "Bacteroides"))
+
+  base_model_Csf3r <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Csf3r_base)
+summary(base_model_Csf3r)
+
+  bvp_model_Csf3r <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Csf3r_pvb)
+summary(bvp_model_Csf3r)
+
+#Run stats on Fcgr4
+Nano_normalized_long_neutrophils_df_Fcgr4_base <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Fcgr4"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_neutrophils_df_Fcgr4_pvb <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Fcgr4"& Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_Fcgr4 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Fcgr4_base)
+summary(base_model_Fcgr4)
+
+  bvp_model_Fcgr4 <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Fcgr4_pvb)
+summary(bvp_model_Fcgr4)
+
+#Run stats on Fpr1
+Nano_normalized_long_neutrophils_df_Fpr1_base <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Fpr1"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_neutrophils_df_Fpr1_pvb <- Nano_normalized_long_neutrophils_df %>%
+  filter(Gene %in% "Fpr1"& Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_Fpr1 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Fpr1_base)
+summary(base_model_Fpr1)
+
+  bvp_model_Fpr1 <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Cage/Mouse), data = Nano_normalized_long_neutrophils_df_Fpr1_pvb)
+summary(bvp_model_Fpr1)
+```
+
+#Make a plot of all genes that are Macrophages 
+```{r}
+
+
+# List of genes to keep
+macrophage_genes <- c("Cd163", "Cd68", "Cd84", "Ms4a4a")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_macrophages_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% macrophage_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_macrophages_df$Treatment <- factor(Nano_normalized_long_macrophages_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_macrophages_df$Biogeography <- factor(Nano_normalized_long_macrophages_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_macrophages_df$NormalizedCount <- as.numeric(Nano_normalized_long_macrophages_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_macrophages_df_pointplot <- ggplot(Nano_normalized_long_macrophages_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment, shape = Sex))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", ncol = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_macrophages_df_pointplot
+
+
+ggsave("Nano_normalized_long_macrophages_df_pointplot.pdf", plot = Nano_normalized_long_macrophages_df_pointplot
+, device = "pdf", width = 8, height = 3)
+
+# Create the box plot
+
+Nano_normalized_long_macrophages_df_boxplot <- ggplot(Nano_normalized_long_macrophages_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_macrophages_df_boxplot
+
+ggsave("Nano_normalized_long_macrophages_df_boxplot.pdf", plot = Nano_normalized_long_macrophages_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+
+#Plot a boxplot of Cd163 along the gut
+
+Nano_normalized_long_macrophages_df_cd163boxplot <- ggplot(Nano_normalized_long_macrophages_df_Cd163_pvb, aes( x=Treatment, y=NormalizedCount, color = Treatment, shape=Sex))+
+  geom_boxplot() +
+  geom_jitter()+
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Biogeography, scales = "free_y", ncol = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_macrophages_df_cd163boxplot
+
+
+#Run stats Cd163
+Nano_normalized_long_macrophages_df_Cd163_base <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene == "Cd163" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_macrophages_df_Cd163_pvb <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene == "Cd163" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_macrophages_Cd163 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_macrophages_df_Cd163_base)
+summary(base_model_macrophages_Cd163)
+
+Nano_normalized_long_macrophages_df_Cd163_pvb$Cage <- as.character(Nano_normalized_long_macrophages_df_Cd163_pvb$Cage)
+Nano_normalized_long_macrophages_df_Cd163_pvb$Mouse <- as.character(Nano_normalized_long_macrophages_df_Cd163_pvb$Mouse)
+
+
+pvb_model_macrophages_Cd163 <- lmer(log2(NormalizedCount) ~ Treatment + Sex +Biogeography + Biogeography*Treatment + (1|Mouse), data = Nano_normalized_long_macrophages_df_Cd163_pvb)
+summary(pvb_model_macrophages_Cd163)
+
+
+
+#Run stats Cd68
+Nano_normalized_long_macrophages_df_CD68_base <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Cd68"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_macrophages_df_CD68_pvb <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Cd68"& Treatment %in% c("PBS", "Bacteroides"))
+
+  base_model_macrophages_CD68 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_macrophages_df_CD68_base)
+summary(base_model_macrophages_CD68)
+
+Nano_normalized_long_macrophages_df_CD68_pvb$Cage <- as.character(Nano_normalized_long_macrophages_df_CD68_pvb$Cage)
+Nano_normalized_long_macrophages_df_CD68_pvb$Mouse <- as.character(Nano_normalized_long_macrophages_df_CD68_pvb$Mouse)
+
+
+
+  bvp_model_macrophages_CD68 <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Mouse), data = Nano_normalized_long_macrophages_df_CD68_pvb)
+summary(bvp_model_macrophages_CD68)
+
+#Run stats on Cd84
+Nano_normalized_long_macrophages_df_Cd84_base <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Cd84"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_macrophages_df_Cd84_pvb <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Cd84"& Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_macrophages_Cd84 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_macrophages_df_Cd84_base)
+summary(base_model_macrophages_Cd84)
+
+Nano_normalized_long_macrophages_df_Cd84_pvb$Cage <- as.character(Nano_normalized_long_macrophages_df_Cd84_pvb$Cage)
+Nano_normalized_long_macrophages_df_Cd84_pvb$Mouse <- as.character(Nano_normalized_long_macrophages_df_Cd84_pvb$Mouse)
+
+
+  bvp_model_macrophages_Cd84 <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Mouse), data = Nano_normalized_long_macrophages_df_Cd84_pvb)
+summary(bvp_model_macrophages_Cd84)
+
+#Run stats on Ms4a4a
+Nano_normalized_long_macrophages_df_Ms4a4a_base <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Ms4a4a"& Treatment %in% c("Baseline"))
+
+Nano_normalized_long_macrophages_df_Ms4a4a_pvb <- Nano_normalized_long_macrophages_df %>%
+  filter(Gene %in% "Ms4a4a"& Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_macrophages_Ms4a4a <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_macrophages_df_Ms4a4a_base)
+summary(base_model_macrophages_Ms4a4a)
+
+  bvp_model_macrophages_Ms4a4a <- lmerTest::lmer(log2(NormalizedCount)~ Treatment + Sex + Biogeography + Biogeography*Treatment +  (1|Mouse), data = Nano_normalized_long_macrophages_df_Ms4a4a_pvb)
+summary(bvp_model_macrophages_Ms4a4a)
+
+
+
+#RUnu a linear model for each region
+# Required library
+library(dplyr)
+
+# Loop over each unique gene
+for (gene in unique(Nano_normalized_long_macrophages_df$Gene)) {  # Make sure the column name is correct
+    # Subset data for the current gene
+    subset_data <- Nano_normalized_long_macrophages_df %>% 
+                    filter(Gene == gene)  # Correct column name used in filter
+    
+    # Loop over each unique Biogeography
+    for (bio in unique(subset_data$Biogeography)) {
+        # Subset data for the current Biogeography
+        bio_data <- subset_data %>% filter(Biogeography == bio)
+
+        # Run the linear model
+        model <- lm(log2(NormalizedCount) ~ Treatment + Sex +Sex*Treatment, data = bio_data)
+
+        # Extract summary of each model
+        summary_model <- summary(model)
+        
+        # Save the summary of each model to a text file
+        file_name <- paste0("linear_models_macrophages/model_", gene, "_", bio, ".txt")
+        capture.output(summary_model, file = file_name)
+    }
+}
+
+
+ All_macro_model <- lm(log2(NormalizedCount) ~ Treatment + Sex , data = Nano_normalized_long_macrophages_df)
+summary(All_macro_model)
+```
+
+
+#Make a plot of all genes that are dendritic cells 
+```{r}
+
+
+# List of genes to keep
+dendritic_cell_genes <- c("Ccl2", "Cd209e", "Hsd11b1")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_dendriticcells_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% dendritic_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_dendriticcells_df$Treatment <- factor(Nano_normalized_long_dendriticcells_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_dendriticcells_df$Biogeography <- factor(Nano_normalized_long_dendriticcells_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_dendriticcells_df$NormalizedCount <- as.numeric(Nano_normalized_long_dendriticcells_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_dendritic_df_pointplot <- ggplot(Nano_normalized_long_dendriticcells_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", nrow = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_dendritic_df_pointplot
+
+
+ggsave("Nano_normalized_long_dendritic_df_pointplot.pdf", plot = Nano_normalized_long_dendritic_df_pointplot
+, device = "pdf", width = 8, height = 6)
+
+# Create the box plot
+
+Nano_normalized_long_dendritic_df_boxplot <- ggplot(Nano_normalized_long_dendriticcells_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_dendritic_df_boxplot
+
+ggsave("Nano_normalized_long_dendritic_df_boxplot.pdf", plot = Nano_normalized_long_dendritic_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+#Run stats Ccl2
+Nano_normalized_long_dendritic_cells_df_Ccl2_base <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Ccl2" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_dendritic_cells_df_Ccl2_pvb <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Ccl2" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_dendritic_cells_Ccl2 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Ccl2_base)
+summary(base_model_dendritic_cells_Ccl2)
+
+  pvb_model_dendritic_cells_Ccl2 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Ccl2_pvb)
+summary(pvb_model_dendritic_cells_Ccl2)
+
+#Run stats Cd209e
+Nano_normalized_long_dendritic_cells_df_Cd209e_base <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Cd209e" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_dendritic_cells_df_Cd209e_pvb <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Cd209e" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_dendritic_cells_Cd209e <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Cd209e_base)
+summary(base_model_dendritic_cells_Cd209e)
+
+  pvb_model_dendritic_cells_Cd209e <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Cd209e_pvb)
+summary(pvb_model_dendritic_cells_Cd209e)
+
+
+#Run stats Hsd11b1
+Nano_normalized_long_dendritic_cells_df_Hsd11b1_base <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Hsd11b1" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_dendritic_cells_df_Hsd11b1_pvb <- Nano_normalized_long_dendriticcells_df %>%
+  filter(Gene == "Hsd11b1" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_dendritic_cells_Hsd11b1 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Hsd11b1_base)
+summary(base_model_dendritic_cells_Hsd11b1)
+
+  pvb_model_dendritic_cells_Hsd11b1 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_dendritic_cells_df_Hsd11b1_pvb)
+summary(pvb_model_dendritic_cells_Hsd11b1)
+```
+
+
+#Make a plot of all genes that are mast cells 
+```{r}
+
+
+# List of genes to keep
+mast_cell_genes <- c("Cpa3", "Hdc", "Ms4a2", "Tpsab1", "Tpsb2")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_mast_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% mast_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_mast_df$Treatment <- factor(Nano_normalized_long_mast_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_mast_df$Biogeography <- factor(Nano_normalized_long_mast_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_mast_df$NormalizedCount <- as.numeric(Nano_normalized_long_mast_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_mast_df_pointplot <- ggplot(Nano_normalized_long_mast_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", nrow = 5) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_mast_df_pointplot
+
+# Create the box plot
+
+Nano_normalized_long_mast_df_boxplot <- ggplot(Nano_normalized_long_mast_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_mast_df_boxplot
+
+
+ggsave("Nano_normalized_long_mast_df_boxplot.pdf", plot = Nano_normalized_long_mast_df_boxplot
+, device = "pdf", width = 8, height = 6)
+
+
+
+#Run stats Cpa3
+Nano_normalized_long_mast_df_Cpa3_base <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Cpa3" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_mast_df_Cpa3_pvb <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Cpa3" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_mast_Cpa3 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Cpa3_base)
+summary(base_model_mast_Cpa3)
+
+  pvb_model_mast_Cpa3 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Cpa3_pvb)
+summary(pvb_model_mast_Cpa3)
+
+#Run stats Hdc
+Nano_normalized_long_mast_df_Hdc_base <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Hdc" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_mast_df_Hdc_pvb <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Hdc" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_mast_Hdc <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Hdc_base)
+summary(base_model_mast_Hdc)
+
+  pvb_model_mast_Hdc <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Hdc_pvb)
+summary(pvb_model_mast_Hdc)
+
+
+#Run stats Ms4a2
+Nano_normalized_long_mast_df_Ms4a2_base <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Ms4a2" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_mast_df_Ms4a2_pvb <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Ms4a2" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_mast_Ms4a2 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Ms4a2_base)
+summary(base_model_mast_Ms4a2)
+
+  pvb_model_mast_Ms4a2 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Ms4a2_pvb)
+summary(pvb_model_mast_Ms4a2)
+
+#Run stats Tpsab1
+Nano_normalized_long_mast_df_Tpsab1_base <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Tpsab1" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_mast_df_Tpsab1_pvb <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Tpsab1" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_mast_Tpsab1 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Tpsab1_base)
+summary(base_model_mast_Tpsab1)
+
+  pvb_model_mast_Tpsab1 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Tpsab1_pvb)
+summary(pvb_model_mast_Tpsab1)
+
+#Run stats Tpsb2
+Nano_normalized_long_mast_df_Tpsb2_base <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Tpsb2" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_mast_df_Tpsb2_pvb <- Nano_normalized_long_mast_df %>%
+  filter(Gene == "Tpsb2" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_mast_Tpsb2 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Tpsb2_base)
+summary(base_model_mast_Tpsb2)
+
+  pvb_model_mast_Tpsb2 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_mast_df_Tpsb2_pvb)
+summary(pvb_model_mast_Tpsb2)
+
+```
+
+#Make a plot of all genes associated with CD45 
+```{r}
+
+
+# List of genes to keep
+CD45_cell_genes <- c("Ptprc")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_CD45_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% CD45_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_CD45_df$Treatment <- factor(Nano_normalized_long_CD45_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_CD45_df$Biogeography <- factor(Nano_normalized_long_CD45_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_CD45_df$NormalizedCount <- as.numeric(Nano_normalized_long_CD45_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_CD45_df_pointplot <- ggplot(Nano_normalized_long_CD45_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_CD45_df_pointplot
+
+
+ggsave("Nano_normalized_long_CD45_df_pointplot.pdf", plot = Nano_normalized_long_CD45_df_pointplot
+, device = "pdf", width = 8, height = 4)
+
+# Create the box plot
+
+Nano_normalized_long_CD45_df_boxplot <- ggplot(Nano_normalized_long_CD45_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_CD45_df_boxplot
+
+ggsave("Nano_normalized_long_CD45_df_boxplot.pdf", plot = Nano_normalized_long_CD45_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+
+#Run stats Ptprc
+Nano_normalized_long_CD45_df_Ptprc_base <- Nano_normalized_long_CD45_df %>%
+  filter(Gene == "Ptprc" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_CD45_df_Ptprc_pvb <- Nano_normalized_long_CD45_df %>%
+  filter(Gene == "Ptprc" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_CD45_Ptprc <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_CD45_df_Ptprc_base)
+summary(base_model_CD45_Ptprc)
+
+  pvb_model_CD45_Ptprc <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_CD45_df_Ptprc_pvb)
+summary(pvb_model_CD45_Ptprc)
+
+
+```
+
+#Make a plot of all genes associated with Treg cells 
+```{r}
+
+
+# List of genes to keep
+Treg_cell_genes <- c("Foxp3")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Treg_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% Treg_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Treg_df$Treatment <- factor(Nano_normalized_long_Treg_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_Treg_df$Biogeography <- factor(Nano_normalized_long_Treg_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_Treg_df$NormalizedCount <- as.numeric(Nano_normalized_long_Treg_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Treg_df_pointplot <- ggplot(Nano_normalized_long_Treg_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_Treg_df_pointplot
+
+
+ggsave("Nano_normalized_long_Treg_df_pointplot.pdf", plot = Nano_normalized_long_Treg_df_pointplot
+, device = "pdf", width = 8, height = 4)
+
+
+
+#Run stats Foxp3
+Nano_normalized_long_Treg_df_Foxp3_base <- Nano_normalized_long_Treg_df %>%
+  filter(Gene == "Foxp3" & Treatment %in% c("Baseline"))
+
+Nano_normalized_long_Treg_df_Foxp3_pvb <- Nano_normalized_long_Treg_df %>%
+  filter(Gene == "Foxp3" & Treatment %in% c("PBS", "Bacteroides"))
+
+
+  base_model_Treg_Foxp3 <- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), data = Nano_normalized_long_Treg_df_Foxp3_base)
+summary(base_model_Treg_Foxp3)
+
+  pvb_model_Treg_Foxp3 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_Treg_df_Foxp3_pvb)
+summary(pvb_model_Treg_Foxp3)
+
+
+```
+
+#Make a plot of all genes associated with B cells 
+```{r}
+
+
+# List of genes to keep
+B_cell_genes <- c("Blk", "Cd19", "Fcrlb", "Ms4a1", "Pnoc", "Spib", "Tcl1", "Tnfrsf17")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Bcell_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% B_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Bcell_df$Treatment <- factor(Nano_normalized_long_Bcell_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_Bcell_df$Biogeography <- factor(Nano_normalized_long_Bcell_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_Bcell_df$NormalizedCount <- as.numeric(Nano_normalized_long_Bcell_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+Nano_normalized_long_Bcell_df_pointplot <- ggplot(Nano_normalized_long_Bcell_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", nrow = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_Bcell_df_pointplot
+
+
+ggsave("Nano_normalized_long_Bcell_df_pointplot.pdf", plot = Nano_normalized_long_Bcell_df_pointplot
+, device = "pdf", width = 10, height = 6)
+
+#Create a boxplot
+Nano_normalized_long_Bcell_df_boxplot <- ggplot(Nano_normalized_long_Bcell_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_Bcell_df_boxplot
+
+ggsave("Nano_normalized_long_Bcell_df_boxplot.pdf", plot = Nano_normalized_long_Bcell_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+
+#Run stats B cells
+# Create the "Bcells" directory if it doesn't exist
+dir.create("Bcells", showWarnings = FALSE)
+
+# Get the unique genes
+unique_genes <- unique(Nano_normalized_long_Bcell_df$Gene)
+
+# Loop through each gene
+for (gene in unique_genes) {
+  # Subset data for the current gene
+  Nano_normalized_long_Bcell_df_gene_base <- Nano_normalized_long_Bcell_df %>%
+    filter(Gene == gene & Treatment %in% c("Baseline"))
+
+  Nano_normalized_long_Bcell_df_gene_pvb <- Nano_normalized_long_Bcell_df %>%
+    filter(Gene == gene & Treatment %in% c("PBS", "Bacteroides"))
+
+  # Base model for current gene
+  base_model_Bcell<- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), 
+                                    data = Nano_normalized_long_Bcell_df_gene_base)
+  base_summary <- summary(base_model_Bcell)
+
+  # PVB model for current gene
+  pvb_model_Bcell <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), 
+                                   data = Nano_normalized_long_Bcell_df_gene_pvb)
+  pvb_summary <- summary(pvb_model_Bcell)
+
+  # Write summaries to a text file
+  file_name <- paste0("Bcells/model_", gene, ".csv")
+  capture.output(base_summary, file = file_name)
+  capture.output(pvb_summary, file = file_name, append = TRUE)
+}
+
+
+
+
+
+```
+
+#Make a plot of all genes associated with Mast cells 
+```{r}
+
+
+# List of genes to keep
+B_cell_genes <- c("Blk", "Cd19", "Fcrlb", "Ms4a1", "Pnoc", "Spib", "Tcl1", "Tnfrsf17")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_Bcell_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% B_cell_genes)
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_Bcell_df$Treatment <- factor(Nano_normalized_long_Bcell_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_Bcell_df$Biogeography <- factor(Nano_normalized_long_Bcell_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_Bcell_df$NormalizedCount <- as.numeric(Nano_normalized_long_Bcell_df$NormalizedCount)
+
+
+
+# Create the point plot
+
+
+Nano_normalized_long_Bcell_df_pointplot <- ggplot(Nano_normalized_long_Bcell_df, aes( x=Biogeography, y=NormalizedCount, color = Treatment))+
+  geom_point(position = position_dodge(width = 0.25), size = 2) +  # Adjust position to separate points
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  theme_bw()+
+  facet_wrap(~Gene, scales = "free_y", nrow = 4) + # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+Nano_normalized_long_Bcell_df_pointplot
+
+
+ggsave("Nano_normalized_long_Bcell_df_pointplot.pdf", plot = Nano_normalized_long_Bcell_df_pointplot
+, device = "pdf", width = 10, height = 6)
+
+
+
+#Run stats B cells
+# Create the "Bcells" directory if it doesn't exist
+dir.create("Bcells", showWarnings = FALSE)
+
+# Get the unique genes
+unique_genes <- unique(Nano_normalized_long_Bcell_df$Gene)
+
+# Loop through each gene
+for (gene in unique_genes) {
+  # Subset data for the current gene
+  Nano_normalized_long_Bcell_df_gene_base <- Nano_normalized_long_Bcell_df %>%
+    filter(Gene == gene & Treatment %in% c("Baseline"))
+
+  Nano_normalized_long_Bcell_df_gene_pvb <- Nano_normalized_long_Bcell_df %>%
+    filter(Gene == gene & Treatment %in% c("PBS", "Bacteroides"))
+
+  # Base model for current gene
+  base_model_Bcell<- lmerTest::lmer(log2(NormalizedCount) ~ Biogeography + Sex + (1|Cage/Mouse), 
+                                    data = Nano_normalized_long_Bcell_df_gene_base)
+  base_summary <- summary(base_model_Bcell)
+
+  # PVB model for current gene
+  pvb_model_Bcell <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), 
+                                   data = Nano_normalized_long_Bcell_df_gene_pvb)
+  pvb_summary <- summary(pvb_model_Bcell)
+
+  # Write summaries to a text file
+  file_name <- paste0("Bcells/model_", gene, ".csv")
+  capture.output(base_summary, file = file_name)
+  capture.output(pvb_summary, file = file_name, append = TRUE)
+}
+
+
+
+
+
+```
+
+
+#Autophagy Genes
+```{r}
+# List of genes to keep
+autophagy_genes <- c("Atg10", "Atg12", "Atg13", "Atg3", "Atg4a", "Atg7", "Becn1", "Map1lc3a", "Mtor", "Pik3c3", "Pik3r4", "Rb1cc1", "Ulk1", "Ulk2", "Wipi1")
+
+# Subset Nano_normalized_long_df for the specified genes
+Nano_normalized_long_autophagy_df <- Nano_normalized_long_df %>%
+  filter(Gene %in% autophagy_genes,
+         Treatment %in% c("PBS", "Bacteroides"))
+
+
+
+# Factor the 'Treatment' column with specific levels
+Nano_normalized_long_autophagy_df$Treatment <- factor(Nano_normalized_long_autophagy_df$Treatment, 
+                                                        levels = c("PBS", "Bacteroides", "Baseline"))
+# Factor the 'Biogeography' column with specific levels
+Nano_normalized_long_autophagy_df$Biogeography <- factor(Nano_normalized_long_autophagy_df$Biogeography, 
+                                                        levels = c("SI", "Cec", "Pro", "Dis"))
+
+Nano_normalized_long_autophagy_df$NormalizedCount <- as.numeric(Nano_normalized_long_autophagy_df$NormalizedCount)
+
+# Create the box plot
+
+Nano_normalized_long_autophagy_df_boxplot <- ggplot(Nano_normalized_long_autophagy_df, aes(x = Biogeography, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +  # Use geom_boxplot
+  theme_bw() +
+  facet_wrap(~ Gene, scales = "free_y", nrow = 4) +  # Facet by gene with free y-axis and 4 rows
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+Nano_normalized_long_autophagy_df_boxplot
+
+ggsave("Nano_normalized_long_autophagy_df_boxplot.pdf", plot = Nano_normalized_long_autophagy_df_boxplot
+, device = "pdf", width = 10, height = 6)
+
+#Run stats autophagy genes
+
+#atg10
+Nano_normalized_long_autophagy_atg10_df <- Nano_normalized_long_autophagy_df %>%
+  filter(Gene %in% "Atg10")
+
+  pvb_model_autophagy_atg10 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_autophagy_atg10_df)
+summary(pvb_model_autophagy_atg10)
+
+#atg12
+Nano_normalized_long_autophagy_atg12_df <- Nano_normalized_long_autophagy_df %>%
+  filter(Gene %in% "Atg12")
+
+  pvb_model_autophagy_atg12 <- lmerTest::lmer(log2(NormalizedCount) ~ Treatment + Sex + Biogeography + Biogeography*Treatment + (1|Cage/Mouse), data = Nano_normalized_long_autophagy_atg12_df)
+summary(pvb_model_autophagy_atg12)
+
+```
+
+#Plot CD84 and CD183
+```{r}
+
+#Load a dataframe with just CD84 and Cd163 and Mms4a4a PBS vs Bacteroides
+Nano_normalized_long_macrophages_df_Cd163_pvb
+Nano_normalized_long_macrophages_df_Cd84_pvb
+Nano_normalized_long_macrophages_df_Ms4a4a_pvb
+
+
+#subset out the colon for cd163
+# Assume your dataframe is named Nano_normalized_long_macrophages_df_Cd163_pvb
+Cd163_pvb_colon <- Nano_normalized_long_macrophages_df_Cd163_pvb %>%
+  filter(Biogeography != "SI")
+
+Cd163_pvb_colon_female <- Cd163_pvb_colon %>%
+  filter(Sex != "Male")
+
+#Plot on x axis each region, y axis the normalized count, and color by Treatment
+Cd163_pvb_boxplot <- ggplot(Cd163_pvb_colon_female, aes(x = Treatment, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Biogeography, ncol=4)+
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  scale_color_manual(values = c("PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+Cd163_pvb_boxplot
+
+# Save the plot as a PDF
+ggsave("Cd163_pvb_boxplot.pdf", plot = Cd163_pvb_boxplot, width = 8, height = 4, device = "pdf")
+
+######################################################################
+#subset out the colon for cd84
+# Assume your dataframe is named Nano_normalized_long_macrophages_df_Cd163_pvb
+Cd84_pvb_colon <- Nano_normalized_long_macrophages_df_Cd84_pvb %>%
+  filter(Biogeography != "SI")
+
+Cd84_pvb_colon_female <- Cd84_pvb_colon %>%
+  filter(Sex != "Male")
+
+#Plot on x axis each region, y axis the normalized count, and color by Treatment
+Cd84_pvb_boxplot <- ggplot(Cd84_pvb_colon, aes(x = Treatment, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Biogeography, ncol=4)+
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  scale_color_manual(values = c("PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+Cd84_pvb_boxplot
+
+# Save the plot as a PDF
+ggsave("Cd84_pvb_boxplot.pdf", plot = Cd84_pvb_boxplot, width = 8, height = 4, device = "pdf")
+
+######################################################################
+#subset out the colon for cd84
+# Assume your dataframe is named Nano_normalized_long_macrophages_df_Cd163_pvb
+Ms4a4a_pvb_colon <- Nano_normalized_long_macrophages_df_Ms4a4a_pvb %>%
+  filter(Biogeography != "SI")
+
+Ms4a4a_pvb_colon_female <- Ms4a4a_pvb_colon %>%
+  filter(Sex != "Male")
+
+#Plot on x axis each region, y axis the normalized count, and color by Treatment
+Ms4a4a_pvb_boxplot <- ggplot(Ms4a4a_pvb_colon, aes(x = Treatment, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Biogeography, ncol=4)+
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  scale_color_manual(values = c("PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+Ms4a4a_pvb_boxplot
+
+# Save the plot as a PDF
+ggsave("Ms4a4a_pvb_boxplot.pdf", plot = Ms4a4a_pvb_boxplot, width = 8, height = 4, device = "pdf")
+
+######################################################################
+
+Nano_normalized_long_Atg12_df
+
+
+# Subset Nano_normalized_long_df for the specified treatments and biogeography
+Nano_normalized_long_Atg12_df <- Nano_normalized_long_Atg12_df %>%
+  filter(Treatment %in% pvb_treatment,
+         Biogeography !="SI")
+
+#Plot on x axis each region, y axis the normalized count, and color by Treatment
+Atg12_pvb_boxplot <- ggplot(Nano_normalized_long_Atg12_df, aes(x = Treatment, y = NormalizedCount, color = Treatment)) +
+  geom_boxplot() +
+  theme_bw() +
+  facet_wrap(~Biogeography, ncol=4)+
+  labs(y = "Total Reads", x = "Sample", color = "Treatment") +
+  scale_color_manual(values = c("PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Optionally rotate x-axis labels
+
+Atg12_pvb_boxplot
+
+# Save the plot as a PDF
+ggsave("Ms4a4a_pvb_boxplot.pdf", plot = Ms4a4a_pvb_boxplot, width = 8, height = 4, device = "pdf")
+
+
+```

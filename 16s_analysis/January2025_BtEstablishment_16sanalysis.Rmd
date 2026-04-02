@@ -1,0 +1,3726 @@
+---
+title: "March2024_BtEstablishment_WT_Mice"
+author: "Rebecca Valls"
+date: "2024-03-13"
+output: html_document
+---
+
+## Load the necessary libraries
+```{r, message = FALSE}
+#install.packages("tidyverse")
+library(tidyverse) #R package used for data manipulation and visualization built to work with dataframes. Includes R packages dplyr, ggplot2, tidyr and others.
+
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+#BiocManager::install("phyloseq")
+library(phyloseq) #R package that allows for the analysis of microbiome data.  
+
+#BiocManager::install("ggforce") #R package that extends the functionality of ggplot2,
+library(ggforce)
+
+#install.packages("htmltools")
+library(htmltools)
+
+#install.packages("vegan") #an R package that provides tools for performing ecological and environmental analysis.
+library(vegan)
+
+#install.packages("viridis") #n R package that provides a set of color palettes for data visualization. The palettes are designed to be perceptually uniform and colorblind-friendly, making them well-suited for visualizing data in scientific and data-driven contexts. 
+library(viridis)
+
+#BiocManager::install("ggpubr") #provides a convenient set of tools for creating and customizing 'ggplot2' plots, with functions designed to simplify common tasks such as adding statistical tests, arranging multiple plots, and enhancing plot appearance.
+library(ggpubr)
+
+
+#BiocManager::install("decontam") #helps identify and remove contaminant sequences from microbiome data, improving the accuracy of the analysis. It applies statistical methods to distinguish real biological sequences from contaminants, thereby improving the accuracy and reliability of microbiome studies.
+library(decontam)
+
+#install.packages("broom") #simplifies the extraction and organization of statistical model outputs into tidy data frames, making it easier to analyze, manipulate, and visualize model results
+library(broom)
+
+#install.packages("lme4") #used for fitting linear and generalized linear mixed-effects models
+library(lmerTest)
+
+#install.packages("devtools")
+#devtools::install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+
+library("pairwiseAdonis")
+
+#BiocManager::install("randomForest") #version 4.7.1 #used for fitting random forest models for classication and regression
+library(randomForest) 
+
+#BiocManager::install("caTools") #used for moving (rolling, running) window statistic functions, read/write for GIF and ENVI binary files, fast calculation of AUC, LogitBoost classifier, base64 encoder/decoder, round-off error free sum and cumsum, etc.
+library(caTools)
+
+#BiocManager::install("caret") #used for classification and regression training
+library(caret)
+
+#BiocManager::install("Maaslin2") #MaAsLin2 is comprehensive R package for efficiently determining multivariable association between clinical metadata and microbial meta'omic features. MaAsLin2 relies on general linear models to accommodate most modern epidemiological study designs, including cross-sectional and longitudinal, and offers a variety of data exploration, normalization, and transformation methods.
+library(Maaslin2)
+
+
+library(pairwiseAdonis)
+```
+
+#### Bring in data for making your phyloseq object
+
+### Import the DADA2 output ASV table as a data.frame
+```{r include=FALSE}
+#Bring in the counts
+count_tab <- read.table("Jan2025_WTMouseBtEstablishment_compiled_counts.tsv", header=T, row.names=1, check.names=F, sep="\t")
+head(count_tab)
+
+#remove samples that were resequenced//some had original lower quality samples that were included in DADA2 and i want to remove these so that we don't have duplicate sequencing
+# Define the column names to remove
+columns_to_remove <- c(
+  "5516_106_S102",
+  "5516_111_S107",
+  "5516_113_S109",
+  "5516_145_S141",
+  "5516_147_S143",
+  "5516_153_S149",
+  "4683_35_S195"
+)
+
+# Remove the specified columns
+count_tab_filt <- count_tab[, !(colnames(count_tab) %in% columns_to_remove)]
+
+
+#remove part of column names that say "_S**" or "Reseq_S*", and then remove the 0 before numbers for 5516 sequencing
+
+colnames(count_tab_filt) <- gsub("_?Reseq_S\\d+|_S\\d+", "", colnames(count_tab_filt))
+colnames(count_tab_filt) <- gsub("5516_0+", "5516_", colnames(count_tab_filt))
+
+
+```
+
+### Import the DADA2 output taxa table as a matrix
+```{r}
+#bring in the taxonomy classification for each ASV,
+tax_tab <- as.matrix(read.table("Jan2025_WTMouseBtEstablishment_compiled_taxa.tsv", header=T, row.names=1, check.names=F, sep="\t"))
+head(tax_tab)
+
+```
+
+### Import the sample information and place them in desired order
+```{r}
+#Bring in the mouse and treatment information
+SeqCoast_Sample_metadata_nonCF_Exp1n2 <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/3_DataAnalysis/16s_analysis/SeqCoast_Sample_metadata_nonCF_Exp1n2.csv")
+metadata_all <- SeqCoast_Sample_metadata_nonCF_Exp1n2
+View(metadata_all)
+
+#Add a column with the Biogeography and the Microniche
+# Assuming 'metadata_all' is your dataframe
+metadata_all <- metadata_all %>%
+  # Create the 'Biogeography' column
+  mutate(Biogeography = case_when(
+    grepl("SI", TubeLabel) ~ "SmallIntestine",
+    grepl("Cec", TubeLabel) ~ "Cecum",
+    grepl("Pro", TubeLabel) ~ "ProximalColon",
+    grepl("Dis", TubeLabel) ~ "DistalColon",
+    TRUE ~ NA_character_ # default case
+  )) %>%
+  # Create the 'Microniche' column
+  mutate(Microniche = case_when(
+    grepl("LC", TubeLabel) ~ "LuminalContents",
+    grepl("MS", TubeLabel) ~ "MucosalSurface",
+    TRUE ~ NA_character_ # default case
+  ))
+
+# add sample_or_control column to identify samples for decontam
+metadata_all <- metadata_all %>%
+  mutate(sample_or_control = ifelse(TubeLabel == "CollectionControl", "Control", "Sample"))
+
+
+#Make the sample names the row names for clinical information
+metadata_all <- metadata_all %>% remove_rownames %>% column_to_rownames(var="Sample_ID")
+metadata_all <- as.data.frame(metadata_all)
+sample_info_tab <- as.data.frame(metadata_all)
+
+##remove unannotated samples from count_tab and metadata. This removes 0 samples!
+count_tab_filtered_w_metadata <- count_tab_filt[,colnames(count_tab_filt) %in% rownames(sample_info_tab)]
+sample_info_tab <- sample_info_tab[rownames(sample_info_tab) %in% colnames(count_tab_filt),]
+                                   
+
+#Factor time point to be in correct order
+print(sample_info_tab$Compiled_Timepoint)
+sample_info_tab$Compiled_Timepoint <- factor(sample_info_tab$Compiled_Timepoint, levels=c("Baseline", "Late_Baseline", "Antibiotics", "Early_Gavage", "Late_Gavage", "Before_LPS", "LPS", "Sacrifice"))
+
+sample_info_tab$Treatment <- factor(sample_info_tab$Treatment, levels=c("Baseline", "PBS", "Bacteroides"))
+
+sample_info_tab$Biogeography <- factor(sample_info_tab$Biogeography, levels=c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+sample_info_tab$Sex <- factor(sample_info_tab$Sex, levels = c("F", "M"))
+
+
+
+```
+
+
+### Set the theme for plots
+Sets up a global theme for all plots created during this session
+
+```{r, message = FALSE}
+theme_set(theme_bw()) # set global theme to bw
+theme_replace(axis.title.x=element_text(size=14), # set individual theme options for plotting
+
+              axis.title.y=element_text(size=14, angle = 90),
+              axis.text.x = element_text(size = 12,
+                                         angle = 45,
+                                         hjust = 1,
+                                         vjust = 1),
+              axis.text.y=element_text(size=12),
+              legend.title=element_text(size=14),
+              legend.text=element_text(size=12))
+```
+
+### Instructions for Phyloseq
+#### Make phyloseq object
+```{r}
+
+#transform data (?) into phyloseq object
+#for some reason, if you don't do this, phyloseq will not recognize "Month" header
+sample_info_tab_phy <- sample_data(sample_info_tab)
+count_tab_phy <- otu_table(count_tab_filtered_w_metadata, taxa_are_rows=T)
+tax_tab_phy <- tax_table(tax_tab)
+
+#make phyloseq object
+btEstablishmentWTmice_phyloseq <- phyloseq(count_tab_phy, tax_tab_phy, sample_info_tab_phy)
+btEstablishmentWTmice_phyloseq
+```
+
+
+# Let's decontaminate the samples
+The decontam package in R identifies and removes contaminant sequences from marker-gene and metagenomics data. By using statistical methods based on sequence prevalence or frequency, it distinguishes true biological sequences from contaminants. This improves data accuracy in microbiome research, ensuring that results reflect the actual microbial community composition.
+
+```{r}
+df <- as.data.frame(sample_data(btEstablishmentWTmice_phyloseq)) # put sample_data into ggplot friendly data frame
+
+df$librarysize <- sample_sums(btEstablishmentWTmice_phyloseq) #generate librarysize column - by summing read counts
+```
+
+### Plot library size
+Visualize which samples have small or large library sizes
+
+```{r, message = FALSE}
+ggplot(data = df, # input dataframe
+       aes(x = reorder(TubeLabel,librarysize), # reorder sample by ascending library size
+           y = librarysize, # set y axis
+           color = sample_or_control)) + # set color of points
+  geom_point(shape = 1, # set point shape
+             alpha = 0.5) + # change point size
+  ylab("Library size") + # relabel y axis
+  xlab("Sample") + # relabel x axis
+  scale_color_discrete(labels = c("Control","Sample")) + # relabel legend categories
+  theme(axis.text.x = element_blank(), # change vertical justification 
+        axis.ticks.x = element_blank(), # remove x axis ticks
+        panel.grid.minor = element_blank(), # remove minor gridlines
+        panel.grid.major = element_blank(), # remove major gridlines
+        legend.title = element_blank(), # remove legend title
+        legend.position = c(0.1,0.9), # move legend
+        legend.background = element_rect(color = "black")) # set outer boundary of legend box
+```
+This generates a warning that there are four samples with 0 reads - we should remove these from our further analysis using *phyloseq*.
+
+```{r, message = FALSE}
+prune_samples(sample_sums(btEstablishmentWTmice_phyloseq)!=0, btEstablishmentWTmice_phyloseq) -> btEstablishmentWTmice_phyloseq_NZ # prune samples with 0 reads
+# rename as filtered phyloseq object so that we do not mix up the two lots of data
+```
+
+
+### Identify contaminants through prevalence
+*decontam* also provides a method for identifying contaminants through their presence and absence in known samples and controls. This method does not take into account the DNA concentrations of samples, just whether or not they are identified as sample or control in the metadata.
+
+```{r, message = FALSE}
+sample_data(btEstablishmentWTmice_phyloseq_NZ)$is.neg <- sample_data(btEstablishmentWTmice_phyloseq_NZ)$sample_or_control == "Control" # create new variable in phyloseq object that identifies negative controls based on sample_or_control column
+
+contamdfPrev <- isContaminant(btEstablishmentWTmice_phyloseq_NZ, # input phyloseq object
+                               method = "prevalence", # define method for contaminant identification
+                               neg = "is.neg") # define column for identifying negative controls
+
+table(contamdfPrev$contaminant)
+```
+### Activity - what happens if we change the threshold for contaminant identification in the "prevalence" method?
+Note: at threshold 0.5, *decontam* will call all ASVs that are more prevalent in controls than samples as contaminants.
+
+```{r, message = FALSE}
+contamdfPrevThr <- isContaminant(btEstablishmentWTmice_phyloseq_NZ, # input phyloseq object
+                                 method = "prevalence", # define method for contaminant identification
+                                 neg = "is.neg", # define column for identifying negative controls
+                                 threshold = 0.5) # define threshold for contaminant identification
+
+table(contamdfPrevThr$contaminant)
+
+print(contamdfPrevThr[contamdfPrevThr$contaminant == TRUE, ])
+print(tax_tab["ASV_26006", ])
+
+
+```
+### Plot ASV prevalence in samples vs. controls to check if this method is appropriate
+
+```{r, message = FALSE}
+psPrev <- transform_sample_counts(btEstablishmentWTmice_phyloseq_NZ, 
+                                  function(abund) 1*(abund>0)) # transform sample counts
+
+psPrev.neg <- prune_samples(sample_data(psPrev)$sample_or_control == "Control", 
+                            psPrev) # make list of controls
+
+psPrev.pos <- prune_samples(sample_data(psPrev)$sample_or_control == "Sample", 
+                            psPrev) # make list of samples
+
+dfPrev <- data.frame(prevPos = taxa_sums(psPrev.pos), # build dataframe
+                     prevNeg = taxa_sums(psPrev.neg),
+                     contaminant = contamdfPrev$contaminant)
+
+ggplot(data = dfPrev, # input dataframe
+       aes(x = prevNeg, # x axis prevalence in negative controls
+           y = prevPos, # y axis prevalence in samples
+           color = contaminant)) + 
+  geom_point(shape = 1) +
+  xlab("Prevalence (controls)") + 
+  ylab("Prevalence (samples)")
+```
+
+
+```{r}
+btEstablishmentWTmice_phyloseq_NZ # check dimensions of current phyloseq object
+```
+
+
+"contaminant" is a Boolean variable so using an exclamation point tells phyloseq not to select ASVs which have TRUE in the contaminant column for taxa pruning.
+
+```{r}
+Phyloseq_object_NonContam <- prune_taxa(!contamdfPrevThr$contaminant,
+                          btEstablishmentWTmice_phyloseq_NZ)
+
+
+
+Phyloseq_object_NonContam # check dimensions of new phyloseq object #removed 1 contaminant
+```
+
+#Plot the alpha diversity across experiment, showing each treatment group
+```{r}
+
+# Define custom colors for Treatment groups
+custom_colors <- c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")
+
+#Filter data to only include subset groups
+
+#Data from samples collected across experiment
+btphylo_nosacrifice <- subset_samples(Phyloseq_object_NonContam, Compiled_Timepoint != "Sacrifice")
+btphylo_nosacrifice <- subset_samples(btphylo_nosacrifice, sample_or_control != "C")
+
+
+#Data from samples collected across gut at sacrifice
+btphylo_atsacrifice <- subset_samples(Phyloseq_object_NonContam, Compiled_Timepoint == "Sacrifice")
+
+
+colnames(sample_data(btphylo_nosacrifice))
+
+#Plot Chao1 alpha diversity for time point. Here you should use unnormalized data.
+alpha_diversity_chao1 <- plot_richness(btphylo_nosacrifice, x="Experiment_Day", color = "Treatment", measures=c("Chao1"))+
+  stat_summary(fun.y = mean, size=1, geom = "line", aes(group = Treatment)) +
+  geom_point(size=1.5)+
+  theme_bw()+
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction("SeqCoastOrder","Cage..","Mouse..")), size = 0.25)  # Add this line to connect points for each MouseID
+
+alpha_diversity_chao1
+
+ggsave("alpha_diversity_chao1_acrossexperiment.pdf", plot = alpha_diversity_chao1, device = "pdf", width = 10, height = 4)
+
+
+
+
+
+```
+
+
+
+```{r}
+alpha_diversity_shannon <- plot_richness(btphylo_nosacrifice, x="Experiment_Day", color = "Treatment", measures=c("Shannon"))+
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  geom_point(size=1)+
+  theme_bw()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction("SeqCoastOrder","Cage #","Mouse #")), size = 0.25)  # Add this line to connect points for each MouseID
+
+alpha_diversity_shannon
+
+#plot alpha diversity across expreimemnt with boxplot
+alpha_diversity_shannon_v2 <- plot_richness(btphylo_nosacrifice, x="Compiled_Timepoint", color = "Treatment", measures=c("Shannon"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Shannon", x = "Experiment Day", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_shannon_v2
+?plot_richness
+
+alpha_diversity_simpson <- plot_richness(btphylo_nosacrifice, x="Compiled_Timepoint", color = "Treatment", measures=c("Simpson"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Simpson", x = "Experiment Day", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_simpson
+
+alpha_diversity_Chao1 <- plot_richness(btphylo_nosacrifice, x="Compiled_Timepoint", color = "Treatment", measures=c("Chao1"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Chao1", x = "Experiment Day", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_Chao1
+
+
+
+#Plot Fisher alpha diversity for time point. Here you should use unnormalized data.
+alpha_diversity_fisher <- plot_richness(btphylo_nosacrifice, x="Experiment_Day", color = "Treatment", measures=c("Fisher"))+
+  geom_point(size=1.5)+
+  theme_bw()+
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction("SeqCoastOrder","Cage..","Mouse..")), size = 0.25)  # Add this line to connect points for each MouseID
+
+alpha_diversity_fisher
+
+ggsave("alpha_diversity_fisher_boxplot.pdf", plot = alpha_diversity_fisher_boxplot, device = "pdf", width = 10, height = 4)
+
+#pull alpha diversity data and plot across experiment
+# Step 1: Estimate Fisher alpha diversity from the phyloseq object
+fisher_diversity_nosacrifice <- estimate_richness(btphylo_nosacrifice, measures = "Fisher")
+
+# Step 2: Combine Fisher diversity with sample data
+# Convert the Fisher diversity to a data frame
+fisher_nosacrifice_df <- as.data.frame(fisher_diversity_nosacrifice)
+
+# Ensure the row names (samples) are included in the data frame
+fisher_nosacrifice_df$Sample <- rownames(fisher_nosacrifice_df)
+metadata_all$Sample <- rownames(metadata_all)
+
+
+# Merge with your metadata
+combined_nosacrifice_df <- fisher_nosacrifice_df %>%
+  left_join(metadata_all, by ="Sample")  # Adjust "SampleID" according to your metadata
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+combined_nosacrifice_df$Treatment <- factor(combined_nosacrifice_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+combined_nosacrifice_filtered <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint != "Baseline")  # Keep only rows where Compiled_Timepoint is not "Baseline"
+
+combined_nosacrifice_filtered$Compiled_Timepoint <- factor(
+  combined_nosacrifice_filtered$Compiled_Timepoint, 
+  levels = c("Late_Baseline", "Antibiotics", "Early_Gavage", "Late_Gavage", "Before_LPS", "LPS")
+)
+
+# Step 3: Create the alpha diversity plot for Fisher's measure across gut
+alpha_fisher_across_experiment <- ggplot(combined_nosacrifice_filtered, 
+                                   aes(x = Compiled_Timepoint, y = Fisher, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Experiment Day",
+       y = expression("Alpha Diversity - Fisher"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_fisher_across_experiment)
+
+ggsave("alpha_fisher_across_experiment_boxplot.pdf", plot = alpha_fisher_across_experiment, device = "pdf", width = 10, height = 4)
+
+# Subset the data for Late_Baseline
+
+Late_Baseline_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("Late_Baseline"))  # Keep rows for both time points
+
+Late_Baseline_fisher_df$Treatment <- factor(Late_Baseline_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+Late_Baseline_fisher_df$Treatment <- factor(Late_Baseline_fisher_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_latebaseline_fisher <- shapiro.test(Late_Baseline_fisher_df$Fisher)
+shapiro_latebaseline_shapiro
+
+fisher_alpha_lm_Late_Baseline <- lm(Fisher ~ Treatment + Sex + Treatment*Sex+Cage, data = Late_Baseline_fisher_df)
+summary(fisher_alpha_lm_Late_Baseline)
+
+# Subset the data for Antibiotics
+
+Antibiotics_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("Antibiotics"))  # Keep rows for both time points
+
+Antibiotics_fisher_df$Treatment <- factor(Antibiotics_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_antibiotics_fisher <- shapiro.test(Antibiotics_fisher_df$Fisher)
+shapiro_antibiotics_fisher
+
+fisher_alpha_lm_Antibiotics <- lm(log2(Fisher) ~ Treatment + Sex + Treatment*Sex+Cage, data = Antibiotics_fisher_df)
+summary(fisher_alpha_lm_Antibiotics)
+
+# Subset the data for Early_Gavage
+
+Early_Gavage_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("Early_Gavage"))  # Keep rows for both time points
+
+Early_Gavage_fisher_df$Treatment <- factor(Early_Gavage_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+
+# Run the linear model on the subset
+shapiro_early_gavage_fisher <- shapiro.test(Early_Gavage_fisher_df$Fisher)
+shapiro_early_gavage_fisher
+
+
+fisher_alpha_lm_Early_Gavage <- lm(Fisher ~ Treatment + Sex + Treatment*Sex+Cage, data = Early_Gavage_fisher_df)
+summary(fisher_alpha_lm_Early_Gavage)
+
+# Subset the data for Late_Gavage
+
+Late_Gavage_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("Late_Gavage"))  # Keep rows for both time points
+
+Late_Gavage_fisher_df$Treatment <- factor(Late_Gavage_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+
+# Run the linear model on the subset
+shapiro_late_gavage_fisher <- shapiro.test(Late_Gavage_fisher_df$Fisher)
+shapiro_late_gavage_fisher
+
+fisher_alpha_lm_Late_Gavage <- lm(log2(Fisher) ~ Treatment + Sex + Treatment*Sex+Cage, data = Late_Gavage_fisher_df)
+summary(fisher_alpha_lm_Late_Gavage)
+
+# Subset the data for Before_LPS
+
+Before_LPS_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("Before_LPS"))  # Keep rows for both time points
+
+Before_LPS_fisher_df$Treatment <- factor(Before_LPS_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+
+# Run the linear model on the subset
+shapiro_before_lps_fisher <- shapiro.test(Before_LPS_fisher_df$Fisher)
+shapiro_before_lps_fisher
+
+fisher_alpha_lm_Before_LPS <- lm(log2(Fisher) ~ Treatment + Sex + Treatment*Sex+Cage, data = Before_LPS_fisher_df)
+summary(fisher_alpha_lm_Before_LPS)
+
+# Subset the data for LPS
+
+LPS_fisher_df <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint %in% c("LPS"))  # Keep rows for both time points
+
+LPS_fisher_df$Treatment <- factor(LPS_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+
+# Run the linear model on the subset
+shapiro_lps_fisher <- shapiro.test(LPS_fisher_df$Fisher)
+shapiro_before_lps_fisher
+
+fisher_alpha_lm_LPS <- lm(log2(Fisher) ~ Treatment + Sex + Treatment*Sex+Cage, data = LPS_fisher_df)
+summary(fisher_alpha_lm_LPS)
+```
+
+Plot the Pielou's Evenness and Observed Richness
+```{r}
+# Step 1: Estimate Shannon alpha diversity from the phyloseq object
+Shannon_diversity_nosacrifice <- estimate_richness(btphylo_nosacrifice, measures = "Shannon")
+observed_diversity_nosacrifice <- estimate_richness(btphylo_nosacrifice, measures = "Observed")
+
+
+# Step 2: Combine Shannon diversity with sample data
+# Convert the Shannon diversity to a data frame
+Shannon_nosacrifice_df <- as.data.frame(Shannon_diversity_nosacrifice)
+observed_nosacrifice_df <- as.data.frame(observed_diversity_nosacrifice)
+
+
+# Ensure the row names (samples) are included in the data frame
+Shannon_nosacrifice_df$Sample <- rownames(Shannon_nosacrifice_df)
+
+observed_nosacrifice_df$Sample <- rownames(observed_nosacrifice_df)
+observed_nosacrifice_df$Sample <- gsub("X", "", observed_nosacrifice_df$Sample) #remove the x that is coming up for some reason
+
+
+metadata_all$Sample <- rownames(metadata_all)
+
+# Merge with your metadata
+combined_nosacrifice_df <- Shannon_nosacrifice_df %>%
+  left_join(metadata_all, by ="Sample")  # Adjust "SampleID" according to your metadata
+
+# Merge with your metadata
+combined_nosacrifice_df <- combined_nosacrifice_df %>%
+  left_join(observed_nosacrifice_df, by ="Sample")  # Adjust "SampleID" according to your metadata
+
+combined_nosacrifice_df$Pielou <- combined_nosacrifice_df$Shannon / log(combined_nosacrifice_df$Observed)
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+combined_nosacrifice_df$Treatment <- factor(combined_nosacrifice_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+combined_nosacrifice_filtered <- combined_nosacrifice_df %>%
+  filter(Compiled_Timepoint != "Baseline")  # Keep only rows where Compiled_Timepoint is not "Baseline"
+
+combined_nosacrifice_filtered$Compiled_Timepoint <- factor(
+  combined_nosacrifice_filtered$Compiled_Timepoint, 
+  levels = c("Late_Baseline", "Antibiotics", "Early_Gavage", "Late_Gavage", "Before_LPS", "LPS")
+)
+
+
+alpha_Observed_across_experiment <- ggplot(combined_nosacrifice_filtered, 
+                                   aes(x = Compiled_Timepoint, y = Observed, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Experiment Day",
+       y = expression("Alpha Diversity - Observed"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_Observed_across_experiment)
+
+
+# Step 3: Create the alpha diversity plot for Shannon's measure across gut
+alpha_Pielou_across_experiment <- ggplot(combined_nosacrifice_filtered, 
+                                   aes(x = Compiled_Timepoint, y = Pielou, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Experiment Day",
+       y = expression("Alpha Diversity - Pielou"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_Pielou_across_experiment)
+
+ggsave("alpha_Pielou_across_experiment_boxplot.pdf", plot = alpha_Pielou_across_experiment, device = "pdf", width = 6, height = 4)
+
+ggsave("alpha_Observed_across_experiment_boxplot.pdf", plot = alpha_Observed_across_experiment, device = "pdf", width = 6, height = 4)
+
+```
+
+#Run stats for observed across experiment
+```{r}
+
+
+# Subset the data for Late_Baseline
+
+Late_Baseline_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Late_Baseline"))  # Keep rows for both time points
+
+Late_Baseline_observed_df$Treatment <- factor(Late_Baseline_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+Late_Baseline_observed_df$Treatment <- factor(Late_Baseline_observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_latebaseline_shapiro <- shapiro.test(Late_Baseline_observed_df$Observed)
+shapiro_latebaseline_shapiro
+
+observed_alpha_lm_Late_Baseline <- lm(Observed ~ Treatment + Sex + Treatment*Sex+Cage, data = Late_Baseline_observed_df)
+summary(observed_alpha_lm_Late_Baseline)
+
+# Subset the data for antibiotics
+
+Antibiotics_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Antibiotics"))  # Keep rows for both time points
+
+Antibiotics_observed_df$Treatment <- factor(Antibiotics_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_antibiotics_shapiro <- shapiro.test(Antibiotics_observed_df$Observed)
+shapiro_antibiotics_shapiro
+
+observed_alpha_lm_antibiotics <- lm(Observed ~ Treatment + Sex + Treatment*Sex+Cage, data = Antibiotics_observed_df)
+summary(observed_alpha_lm_antibiotics)
+
+# Subset the data for early gavage
+
+early_gavage_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Early_Gavage"))  # Keep rows for both time points
+
+early_gavage_observed_df$Treatment <- factor(early_gavage_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_early_gavage_shapiro <- shapiro.test(early_gavage_observed_df$Observed)
+shapiro_early_gavage_shapiro
+
+observed_alpha_lm_early_gavage <- lm(Observed ~ Treatment + Sex + Treatment*Sex+Cage, data = early_gavage_observed_df)
+summary(observed_alpha_lm_early_gavage)
+
+# Subset the data for late gavage
+
+late_gavage_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Late_Gavage"))  # Keep rows for both time points
+
+late_gavage_observed_df$Treatment <- factor(late_gavage_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+late_gavage_observed_df$Treatment <- factor(late_gavage_observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_late_gavage_shapiro <- shapiro.test(late_gavage_observed_df$Observed)
+shapiro_late_gavage_shapiro
+
+observed_alpha_lm_late_gavage <- lm(log2(Observed) ~ Treatment + Sex + Treatment*Sex+Cage, data = late_gavage_observed_df)
+summary(observed_alpha_lm_late_gavage)
+
+# Subset the data for before_LPS
+
+before_LPS_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Before_LPS"))  # Keep rows for both time points
+
+before_LPS_observed_df$Treatment <- factor(before_LPS_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_before_LPS_shapiro <- shapiro.test(before_LPS_observed_df$Observed)
+shapiro_before_LPS_shapiro
+
+observed_alpha_lm_before_LPS <- lm(log2(Observed) ~ Treatment + Sex + Treatment*Sex+Cage, data = before_LPS_observed_df)
+summary(observed_alpha_lm_before_LPS)
+
+# Subset the data for LPS
+
+LPS_observed_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("LPS"))  # Keep rows for both time points
+
+LPS_observed_df$Treatment <- factor(LPS_observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_LPS_shapiro <- shapiro.test(LPS_observed_df$Observed)
+shapiro_LPS_shapiro
+
+observed_alpha_lm_LPS <- lm(Observed ~ Treatment + Sex + Treatment*Sex+Cage, data = LPS_observed_df)
+summary(observed_alpha_lm_LPS)
+```
+#Run stats for Pielous across experiment
+```{r}
+
+
+# Subset the data for Late_Baseline
+
+Late_Baseline_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Late_Baseline"))  # Keep rows for both time points
+
+Late_Baseline_Pielou_df$Treatment <- factor(Late_Baseline_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+Late_Baseline_Pielou_df$Treatment <- factor(Late_Baseline_Pielou_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_latebaseline_shapiro <- shapiro.test(Late_Baseline_Pielou_df$Pielou)
+shapiro_latebaseline_shapiro
+
+Pielou_alpha_lm_Late_Baseline <- lm(Pielou ~ Treatment + Sex + Treatment*Sex+Cage, data = Late_Baseline_Pielou_df)
+summary(Pielou_alpha_lm_Late_Baseline)
+
+# Subset the data for antibiotics
+
+Antibiotics_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Antibiotics"))  # Keep rows for both time points
+
+Antibiotics_Pielou_df$Treatment <- factor(Antibiotics_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_antibiotics_Pielou <- shapiro.test(Antibiotics_Pielou_df$Pielou)
+shapiro_antibiotics_Pielou
+
+Pielou_alpha_lm_antibiotics <- lm(Pielou ~ Treatment + Sex + Treatment*Sex+Cage, data = Antibiotics_Pielou_df)
+summary(Pielou_alpha_lm_antibiotics)
+
+# Subset the data for early gavage
+
+early_gavage_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Early_Gavage"))  # Keep rows for both time points
+
+early_gavage_Pielou_df$Treatment <- factor(early_gavage_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_early_gavage_Pielou <- shapiro.test(early_gavage_Pielou_df$Pielou)
+shapiro_early_gavage_Pielou
+
+Pielou_alpha_lm_early_gavage <- lm(Pielou ~ Treatment + Sex + Treatment*Sex+Cage, data = early_gavage_Pielou_df)
+summary(Pielou_alpha_lm_early_gavage)
+
+# Subset the data for late gavage
+
+late_gavage_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Late_Gavage"))  # Keep rows for both time points
+
+late_gavage_Pielou_df$Treatment <- factor(late_gavage_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_late_gavage_Pielou <- shapiro.test(late_gavage_Pielou_df$Pielou)
+shapiro_late_gavage_Pielou
+
+Pielou_alpha_lm_late_gavage <- lm(log2(Pielou) ~ Treatment + Sex + Treatment*Sex+Cage, data = late_gavage_Pielou_df)
+summary(Pielou_alpha_lm_late_gavage)
+
+# Subset the data for before_LPS
+
+before_LPS_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("Before_LPS"))  # Keep rows for both time points
+
+before_LPS_Pielou_df$Treatment <- factor(before_LPS_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_before_LPS_Pielou <- shapiro.test(before_LPS_Pielou_df$Pielou)
+shapiro_before_LPS_Pielou
+
+Pielou_alpha_lm_before_LPS <- lm(log2(Pielou) ~ Treatment + Sex + Treatment*Sex+Cage, data = before_LPS_Pielou_df)
+summary(Pielou_alpha_lm_before_LPS)
+
+# Subset the data for LPS
+
+LPS_Pielou_df <- combined_nosacrifice_filtered %>%
+  filter(Compiled_Timepoint %in% c("LPS"))  # Keep rows for both time points
+
+LPS_Pielou_df$Treatment <- factor(LPS_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_LPS_Pielou <- shapiro.test(LPS_Pielou_df$Pielou)
+shapiro_LPS_Pielou
+
+Pielou_alpha_lm_LPS <- lm(Pielou ~ Treatment + Sex + Treatment*Sex+Cage, data = LPS_Pielou_df)
+summary(Pielou_alpha_lm_LPS)
+```
+
+### Prepare data for relative abundance plots
+```{r}
+#Remove ASVs that do not show appear more than 1 time in more than 10% the samples
+filteredASVs = genefilter_sample(btphylo_nosacrifice, #genefilter_sample() function is used to filter samples based on certain criteria
+                                 filterfun_sample(function(x) x > 1),  #filterfun_sample() function is applied with a condition that keeps only those samples (ASVs) where the abundance is greater than 1. This will remove ASVs with low abundance across all samples.
+                                 A=0.1*nsamples(Phyloseq_object_NonContam)) #A argument specifies the minimum proportion of samples in which an ASV must exceed the filtering threshold (1 in this case). An ASV must exceed the threshold (abundance > 1) in at least 10% of the samples to be retained.
+
+# Remove samples that have zero total counts
+Phyloseq_object_NonContam_pruned <- prune_samples(sample_sums(btphylo_nosacrifice) > 0, btphylo_nosacrifice)
+
+# Prune taxa based on filtered ASVs
+Phyloseq_subset_prunedst = prune_taxa(filteredASVs, Phyloseq_object_NonContam_pruned)
+
+#Explanation: This is a common approach to reduce the noise in the dataset and improve the accuracy of downstream analysis.
+
+#Transform to even sampling depth.
+Phyloseq_subset_pruned_transformed = transform_sample_counts(Phyloseq_subset_prunedst, function(x) x/sum(x)*100) 
+
+#Explanation: The function transform_sample_counts is being used to divide each count in a sample by the sum of all counts in that sample, and then multiply the result by 100. This effectively converts the counts to percentages, with each value representing the relative abundance of a particular ASV within its respective sample. The resulting object is called Phyloseq_object_pruned_transformed.
+```
+
+
+#Plot relative abundance of just Baseline 
+```{r}
+
+
+#Plot relative abundance with top 20 ASVs
+rank_names(Phyloseq_subset_pruned_transformed)
+table(tax_table(Phyloseq_subset_pruned_transformed)[,"Genus"] == "" | is.na(tax_table(Phyloseq_subset_pruned_transformed)[,"Genus"]))
+#Merge all species (or in this case ASVs) that are in the same genus
+dat.aglo = tax_glom(Phyloseq_subset_prunedst, taxrank = "Genus")
+dat_baseline <- subset_samples(dat.aglo, Compiled_Timepoint == "Baseline")
+
+
+#create list of top 20 ASVs in the phyloseq object that has merged ASVs based on Genus
+top10 <- names(sort(taxa_sums(dat_baseline), decreasing = TRUE)[1:10])
+top10
+
+
+#This will prune out all taxa except those top 20
+prune.top10 = prune_taxa(top10, dat.aglo)
+
+ntaxa(prune.top10)
+
+prune.top10 = prune_taxa(top10, dat.aglo)
+
+ntaxa(prune.top10)
+
+#Re normalize the top 20 taxa to be out of 100
+dat.trans10 = transform_sample_counts(prune.top10, function(x) x/sum(x)*100)
+
+
+#Create a dataframe that has melted or merged the normalized relative abundances of the top 20 taxa so that we can plot using ggplot2
+dat.dataframe10 = psmelt(dat.trans10)
+dat_baseline <- dat.dataframe10 %>%
+  filter(Compiled_Timepoint == "Baseline")
+
+#Average out the relative abundances based on Treatment Short Label and create new, simpler data frame
+dat.agr10 = aggregate(Abundance~Timepoint+Sample+Genus, data=dat_baseline, FUN=mean)
+
+
+#Plot relative abundance of top 20 genera in the gut, normalized for each sample
+relative_abundance_treatment <- ggplot(dat.agr10, aes(x=Sample, y=Abundance, fill=Genus)) + geom_bar(stat="identity")+labs(title = "Relative Abundance across Experiment", x="Treatment", y="Relative Abundance %")+theme(text = element_text(size = 15))+
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+relative_abundance_treatment
+```
+### Plot relative abundance of just Bacteroides
+```{r}
+#Use your pruned and transformed phyloseq object
+Phyloseq_subset_pruned_transformed
+
+ps_bacteroides <- subset_taxa(Phyloseq_subset_pruned_transformed, Genus == "Bacteroides")
+
+otu_df <- as.data.frame(otu_table(ps_bacteroides))
+bacteroides_df <- data.frame(Bacteroides_ra = colSums(otu_df[, sapply(otu_df, is.numeric)]))
+
+bacteroides_df$SampleID <- rownames(bacteroides_df)
+metadata_all$SampleID <- rownames(metadata_all)
+
+# Merge the two dataframes on the "SampleID" column
+metadata_bt_df <- merge(bacteroides_df, metadata_all, by = "SampleID")
+
+
+#Plot relative abundance across experiment
+ra_Bacteroides_across_timeline_smooth <- ggplot(metadata_bt_df, aes(x = Experiment_Day, y = Bacteroides_ra, color = Treatment, shape = Sex)) +
+  geom_point() +
+  stat_summary(fun.y = median, size=2, geom = "line", aes(group = Treatment)) +
+  geom_point(size=1.5)+
+  theme_bw()+
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(SeqCoastOrder,Cage,Mouse)), size = 0.25, alpha=0.3)  # Add this line to connect points for each MouseID
+
+
+ra_Bacteroides_across_timeline_smooth
+
+
+ggsave("Fig1B_ra_Bacteroides_across_timeline_smooth.pdf", plot = ra_Bacteroides_across_timeline_smooth, device = "pdf", width = 6, height = 3)
+
+
+#getting help with coding from claude.ai
+ra_Bacteroides_across_timeline_smooth_claude <- ggplot(metadata_bt_df, 
+    aes(x = Experiment_Day, y = Bacteroides_ra, color = Treatment, fill = Treatment)) +
+  geom_point(aes(shape = Sex), size = 1.5, stroke = 0.5) +
+  geom_point(data = subset(metadata_bt_df, Sex == "M"),  # black outline for males only
+             aes(shape = Sex, fill = Treatment),
+             size = 1.5, color = "black", stroke = 0.5) +
+  stat_summary(fun.y = median, size = 2, geom = "line", aes(group = Treatment)) +
+  theme_bw() +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 1, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 1, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 1, color = "red", hjust = 0, size = 3) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(SeqCoastOrder, Cage, Mouse)), size = 0.25, alpha = 0.3)+
+    labs(
+    x = "Experiment Day",
+    y = expression(paste("Relative Abundance of", "\n", italic("Bacteroides")))
+  )+  
+  theme_bw() +
+  theme(
+    axis.title.x = element_text(size = 14),   # X‑axis title
+    axis.title.y = element_text(size = 14),   # Y‑axis title
+    axis.text   = element_text(size = 12)    # tick labels
+  )
+
+
+ra_Bacteroides_across_timeline_smooth_claude
+
+ggsave("Fig1B_ra_Bacteroides_across_timeline_smooth_PR.pdf", plot = ra_Bacteroides_across_timeline_smooth_claude, device = "pdf", width = 6, height = 3)
+
+
+#Plot relative abundance across experiment, separated by sex
+ra_Bacteroides_across_timeline_smooth <- ggplot(metadata_bt_df, aes(x = Experiment_Day, y = Bacteroides_ra, color = Treatment, shape = Sex)) +geom_point() +
+  stat_summary(fun.y = median, size=2, geom = "line", aes(group = Treatment)) +
+  geom_point(size=1.5)+
+  theme_bw()+
+  facet_wrap(~Sex)+
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(SeqCoastOrder,Cage,Mouse)), size = 0.25) + # Add this line to connect points for each MouseID
+
+
+ra_Bacteroides_across_timeline_smooth
+
+
+
+#linear model on relative abundance of Bacteroides at the end of experiment
+# Subset metadata_bt_df to only include rows with Timepoint == "LPS"
+metadata_bt_lps <- subset(metadata_bt_df, Compiled_Timepoint == "Before_LPS")
+
+#Relevel the Treatment factor to make "PBS" the reference level
+metadata_bt_lps$Treatment <- factor(metadata_bt_lps$Treatment, levels = c("PBS", "Bacteroides"))
+
+
+# Run a linear model
+lm_model <- lm(Bacteroides_ra ~ Treatment+Sex+Treatment*Sex+SeqCoastOrder:Cage, data = metadata_bt_lps)
+
+# Display the summary of the linear model
+summary(lm_model)
+
+bacteroides_sex_plot <- ggplot(metadata_bt_lps, aes(x = Sex, y = Bacteroides_ra)) +
+  geom_boxplot(outlier.shape = NA, fill = "lightblue", alpha = 0.5) +  # Boxplot without outlier points
+  geom_jitter(width = 0.2, size = 2, alpha = 0.6, aes(color = Sex)) +  # Jittered points for individual values
+  facet_wrap(~Treatment)+
+  theme_bw() +
+  labs(
+    x = "Sex",
+    y = "Bacteroides Relative Abundance",
+    title = "Bacteroides Relative Abundance by Sex"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none"
+  )
+
+# Display the plot
+bacteroides_sex_plot
+
+ggsave("bacteroides_sex_plot.pdf", plot = bacteroides_sex_plot, device = "pdf", width = 6, height = 3)
+
+```
+
+#Plot Escherichia-Shigella across the experiment
+```{r}
+#Transform to even sampling depth.
+btphylo_nosacrifice_transformed = transform_sample_counts(btphylo_nosacrifice, function(x) x/sum(x)*100) 
+
+ps_escherichia <- subset_taxa(btphylo_nosacrifice_transformed, Genus == "Escherichia-Shigella")
+
+
+otu_df_es <- as.data.frame(otu_table(ps_escherichia))
+escherichia_df <- data.frame(Escherichia_Shigella_ra = colSums(otu_df_es[, sapply(otu_df_es, is.numeric)]))
+
+escherichia_df$SampleID <- rownames(escherichia_df)
+metadata_all$SampleID <- rownames(metadata_all)
+
+# Merge the two dataframes on the "SampleID" column
+metadata_es_df <- merge(escherichia_df, metadata_all, by = "SampleID")
+
+
+#Plot relative abundance across experiment
+ra_Escherichia_Shigella_across_timeline_smooth <- ggplot(metadata_es_df, aes(x = Experiment_Day, y = Escherichia_Shigella_ra, color = Treatment, shape = Sex)) +geom_point() +
+  stat_summary(fun.y = median, size=2, geom = "line", aes(group = Treatment)) +
+  geom_point(size=1.5)+
+  theme_bw()+
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  geom_line(aes(group = interaction(SeqCoastOrder,Cage,Mouse)), size = 0.25)  # Add this line to connect points for each MouseID
+
+
+
+ra_Escherichia_Shigella_across_timeline_smooth
+
+ggsave("FigS2B_ra_Escherichia_across_timeline_smooth.pdf", plot = ra_Escherichia_Shigella_across_timeline_smooth, device = "pdf", width = 6, height = 3)
+
+
+unique(metadata_es_LPS_df$Compiled_Timepoint)
+
+metadata_es_LPS_df <- metadata_es_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+metadata_es_LPS_df_s <- metadata_es_LPS_df %>%  filter(Compiled_Timepoint %in% c("Early_Gavage", "Late_Gavage", "Before_LPS", "LPS"))
+
+unique(metadata_es_LPS_df$Compiled_Timepoint)
+
+
+ecoli_across_experiment_lm <- lm(Escherichia_Shigella_ra ~ Treatment + Sex + Sex*Treatment+SeqCoastOrder:Cage, data = metadata_es_LPS_df_s)
+
+summary(ecoli_across_experiment_lm)
+
+```
+
+``
+#plot other top taxa across experiment
+```{r}
+
+#Remove ASVs that do not show appear more than 1 time in more than 10% the samples
+filteredASVs_all = genefilter_sample(btphylo_nosacrifice, #genefilter_sample() function is used to filter samples based on certain criteria
+                                 filterfun_sample(function(x) x > 1))  #filterfun_sample() function is applied with a condition that keeps only those samples (ASVs) where the abundance is greater than 1. This will remove ASVs with low abundance across all samples.
+                                 #A=0.1*nsamples(Phyloseq_object_NonContam)) #A argument specifies the minimum proportion of samples in which an ASV must exceed the filtering threshold (1 in this case). An ASV must exceed the threshold (abundance > 1) in at least 10% of the samples to be retained.
+
+# Remove samples that have zero total counts
+btphylo_nosacrifice_pruned <- prune_samples(sample_sums(btphylo_nosacrifice) > 0, btphylo_nosacrifice)
+
+# Prune taxa based on filtered ASVs
+btphylo_nosacrifice_prunedst = prune_taxa(filteredASVs_all, btphylo_nosacrifice_pruned)
+
+#Explanation: This is a common approach to reduce the noise in the dataset and improve the accuracy of downstream analysis.
+
+#Transform to even sampling depth.
+btphylo_nosacrifice_prunedst_transformed = transform_sample_counts(btphylo_nosacrifice_prunedst, function(x) x/sum(x)*100) 
+
+#Explanation: The function transform_sample_counts is being used to divide each count in a sample by the sum of all counts in that sample, and then multiply the result by 100. This effectively converts the counts to percentages, with each value representing the relative abundance of a particular ASV within its respective sample. The resulting object is called Phyloseq_object_pruned_transformed.
+
+genus_rel_df <- psmelt(btphylo_nosacrifice_prunedst_transformed)
+genus_rel_df_notransformed <- psmelt(btphylo_nosacrifice_prunedst)
+
+
+# Summarize the abundance for each unique genus within each sample
+collapsed_df <- genus_rel_df_notransformed %>%
+  group_by(Sample, Genus) %>%
+  summarize(Abundance = sum(Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+# Filter out genera that do not have an abundance > 0 in any sample
+collapsed_df_filtered <- collapsed_df %>%
+  group_by(Genus) %>%
+  filter(any(Abundance > 0)) %>%
+  ungroup()
+
+# Merge the filtered collapsed dataframe with metadata_all
+merged_df <- collapsed_df_filtered %>%
+  left_join(metadata_all, by = c("Sample" = "SampleID"))
+
+# Calculate relative abundance for each genus within each sample as a percentage
+
+
+# Identify the top 10 genera based on total abundance across all samples
+top_10_genera <- merged_df %>%
+  group_by(Genus) %>%
+  summarize(Total_Abundance = sum(Abundance, na.rm = TRUE)) %>%
+  arrange(desc(Total_Abundance)) %>%
+  slice(1:10) %>%
+  pull(Genus)
+
+print(top_10_genera)
+
+# Relabel the "Genus" column to keep only top 10 genera, others as "Other"
+merged_df <- merged_df %>%
+  mutate(Genus = ifelse(Genus %in% top_10_genera, Genus, "Other"))
+
+# Define a custom color palette for the genera, ensuring "Bacteroides" is orange
+genus_colors <- c(
+  "Bacteroides" = "orange",  # Set Bacteroides to orange
+  "Burkholderia-Caballeronia-Paraburkholderia" = "#56B4E9",
+  "Turicibacter" = "#D55E50",
+  "Enterococcus" = "#9467bd",
+  "Dubosiella" = "#CC79A7",
+  "Ralstonia" = "#009E73",
+  "NA" = "#7f7f7f",
+  "Lactobacillus" = "#17becf",
+  "Acinetobacter" = "#FFDB58",
+  "Clostridium sensu stricto 1" = "#8B4513",
+  "Other" = "lightgray"
+)
+
+# Reorder the Treatment factor to ensure desired facet order
+merged_df$Treatment <- factor(merged_df$Treatment, levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Filter out the Baseline treatment group
+merged_df2 <- merged_df %>%
+  filter(Treatment != "Baseline")
+
+# Plot relative abundance across the timeline
+ra_all_genera_across_timeline <- ggplot(merged_df2, aes(x = Experiment_Day, y = Abundance, color = Genus)) +
+  stat_summary(fun = mean, size = 2, geom = "line", aes(group = Genus)) +
+  theme_bw() +
+  facet_grid(Treatment~., scales = "free_y") +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  labs(
+    x = "Experiment Day",
+    y = "Relative Abundance (%)",
+    title = "Relative Abundance of Genera Across Timeline",
+    color = "Genus"
+  ) +
+  scale_color_manual(values = genus_colors) +  # Apply custom colors
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+
+# Display the plot
+ra_all_genera_across_timeline
+
+ggsave("ra_all_genera_across_timeline.pdf", plot = ra_all_genera_across_timeline, device = "pdf", width = 12, height = 6)
+
+
+```
+
+
+
+###Make plots to show where in the gut Bacteroides is establishing
+```{r}
+#Relative abundance of Bacteroides across the gut
+
+#filter phyloseq object so that only the samples collected at sacrifice are included
+btphylo_atsacrifice <- subset_samples(Phyloseq_object_NonContam, Compiled_Timepoint == "Sacrifice")
+
+# Remove ASVs that do not appear more than once in at least 10% of the samples
+filteredASVs_atsac = genefilter_sample(btphylo_atsacrifice,  
+                                       filterfun_sample(function(x) x > 1),  
+                                       A = 0.1 * nsamples(btphylo_atsacrifice))  
+
+# Remove samples that have zero total counts  
+btphylo_atsac_pruned <- prune_samples(sample_sums(btphylo_atsacrifice) > 0, btphylo_atsacrifice)  
+
+# Prune taxa based on filtered ASVs  
+btphylo_atsac_pruned_subset = prune_taxa(filteredASVs_atsac, btphylo_atsac_pruned)  
+
+# Transform to even sampling depth (relative abundance percentage)  
+btphylo_atsac_transformed = transform_sample_counts(btphylo_atsac_pruned_subset, function(x) x / sum(x) * 100)  
+
+# Use pruned and transformed phyloseq object  
+ps_bacteroides_atsac <- subset_taxa(btphylo_atsac_transformed, Genus == "Bacteroides")  
+
+
+otu_df_atsac <- as.data.frame(otu_table(ps_bacteroides_atsac))  
+bacteroides_df_atsac <- data.frame(Bacteroides_ra = colSums(otu_df_atsac[, sapply(otu_df_atsac, is.numeric)]))  
+
+bacteroides_df_atsac$SampleID <- rownames(bacteroides_df_atsac)  
+metadata_all$SampleID <- rownames(metadata_all)  
+
+# Merge the two dataframes on the "SampleID" column  
+metadata_bt_df_atsac <- merge(bacteroides_df_atsac, metadata_all, by = "SampleID")  
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+metadata_bt_df_atsac$Treatment <- factor(metadata_bt_df_atsac$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Set factor levels for Biogeography in the desired order
+metadata_bt_df_atsac$Biogeography <- factor(metadata_bt_df_atsac$Biogeography, 
+                                            levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+#Plot relative abundance across biogeography
+ra_Bacteroides_across_gut <- ggplot(metadata_bt_df_atsac, aes(x = Biogeography, y = Bacteroides_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Boxplot with transparent fill
+  geom_point(aes(color = Treatment, shape = Sex),  # Map shape to Sex within geom_point
+             position = position_jitterdodge(dodge.width = 0.5), 
+             alpha = 0.8, size = 2) +  # Points with color and shape mapped
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_fill_manual
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_color_manual
+  theme_minimal() +
+  labs(x = "Biogeography",
+       y = expression("Relative Abundance of " * italic("Bacteroides")),  # Apply italics to "Bacteroides"
+       fill = "Treatment", 
+       color = "Treatment",  # Add a label for color
+       shape = "Sex") +  # Add a label for shape
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels if needed
+
+ra_Bacteroides_across_gut
+
+ggsave("ra_Bacteroides_across_gut.pdf", plot = ra_Bacteroides_across_gut, device = "pdf", width = 6, height = 4)
+
+#outline the males with help from claude
+ra_Bacteroides_across_gut_claude <- ggplot(metadata_bt_df_atsac, aes(x = Biogeography, y = Bacteroides_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_point(data = subset(metadata_bt_df_atsac, Sex == "F"),
+             aes(fill = Treatment, shape = Sex),
+             position = position_jitterdodge(dodge.width = 0.5),
+             color = "grey50", size = 2, alpha = 0.8, stroke = 0.3) +
+  geom_point(data = subset(metadata_bt_df_atsac, Sex == "M"),
+             aes(fill = Treatment, shape = Sex),
+             position = position_jitterdodge(dodge.width = 0.5),
+             color = "black", size = 2, alpha = 0.8, stroke = 0.8) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  theme_minimal() +
+  labs(x = "Biogeography",
+       y = expression("Relative Abundance of " * italic("Bacteroides")),
+       fill = "Treatment",
+       shape = "Sex") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ra_Bacteroides_across_gut_claude
+ggsave("ra_Bacteroides_across_gut_PR.pdf", plot = ra_Bacteroides_across_gut_claude, device = "pdf", width = 6, height = 4)
+
+# Subset the data to include only Bacteroides treatment
+metadata_bt_df_atsac_bt <- subset(metadata_bt_df_atsac, Treatment == "Bacteroides")
+
+
+# Run the linear model
+metadata_bt_df_atsac_bt_lm <- lm(Bacteroides_ra ~ Biogeography+Sex+SeqCoastOrder:Cage, data = metadata_bt_df_atsac_bt)
+
+# Display the summary of the linear model
+summary(metadata_bt_df_atsac_bt_lm)
+
+# Subset the data to include only Bacteroides treatment
+metadata_bt_df_atsac_PBS <- subset(metadata_bt_df_atsac, Treatment == "Bacteroides")
+
+# Run the linear model
+metadata_bt_df_atsac_PBS_lm <- lm(Bacteroides_ra ~ Biogeography+Sex+SeqCoastOrder:Cage, data = metadata_bt_df_atsac_PBS)
+
+# Display the summary of the linear model
+summary(metadata_bt_df_atsac_PBS_lm)
+
+#Subset samples for microniche data
+metadata_bt_df_atsac_mironiche <- metadata_bt_df_atsac %>%
+  filter(!is.na(Microniche) & Microniche != "")
+
+#Plot relative abundance across microniche
+ra_Bacteroides_across_microniche <- ggplot(metadata_bt_df_atsac_mironiche, aes(x = Microniche, y = Bacteroides_ra, fill = Treatment, shape=Sex)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Boxplot with transparent fill
+  geom_point(aes(color = Treatment), position = position_jitterdodge(dodge.width = 0.5), alpha = 0.8, size = 2) +  # Points with color mapped to Treatment
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_fill_manual
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_color_manual
+  theme_minimal() +
+  labs(x = "Microniche", 
+       y = expression("Relative Abundance of " * italic("Bacteroides")),  # Apply italics to "Bacteroides"
+       fill = "Treatment") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels if needed
+
+ra_Bacteroides_across_microniche
+
+ggsave("ra_Bacteroides_across_microniche.pdf", plot = ra_Bacteroides_across_microniche, device = "pdf", width = 6, height = 4)
+
+#Plot relative abundance across microniche
+ra_Bacteroides_across_microniche_bysex <- ggplot(metadata_bt_df_atsac_mironiche, aes(x = Microniche, y = Bacteroides_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Boxplot with transparent fill
+  geom_point(aes(color = Treatment, shape = Sex),  # Map shape to Sex within geom_point
+             position = position_jitterdodge(dodge.width = 0.5), 
+             alpha = 0.8, size = 2) +  # Points with color and shape mapped
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_fill_manual
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_color_manual
+  theme_minimal() +
+  labs(x = "Microniche",
+       y = expression("Relative Abundance of " * italic("Bacteroides")),  # Apply italics to "Bacteroides"
+       fill = "Treatment", 
+       color = "Treatment",  # Add a label for color
+       shape = "Sex") +  # Add a label for shape
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels if needed
+
+ra_Bacteroides_across_microniche_bysex
+
+ggsave("ra_Bacteroides_across_microniche_bysex.pdf", plot = ra_Bacteroides_across_microniche_bysex, device = "pdf", width = 6, height = 4)
+
+
+# Subset the data to include only Bacteroides treatment
+
+# Set factor levels for Biogeography in the desired order
+metadata_bt_df_atsac_mironiche$Biogeography <- factor(metadata_bt_df_atsac_mironiche$Biogeography, 
+                                            levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+metadata_bt_df_atsac_microniche_bt <- subset(metadata_bt_df_atsac_mironiche, Treatment == "Bacteroides")
+
+# Run the linear model
+metadata_bt_df_atsac_microniche_Bt_lm <- lm(Bacteroides_ra ~ Microniche+Biogeography+Sex, data = metadata_bt_df_atsac_microniche_bt)
+
+# Display the summary of the linear model
+summary(metadata_bt_df_atsac_microniche_Bt_lm)
+
+
+#outline the male triangles in black
+ra_Bacteroides_across_microniche_claude <- ggplot(metadata_bt_df_atsac_mironiche, aes(x = Microniche, y = Bacteroides_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_point(data = subset(metadata_bt_df_atsac_mironiche, Sex == "F"),
+             aes(fill = Treatment, shape = Sex),
+             position = position_jitterdodge(dodge.width = 0.5),
+             color = "grey50", size = 2, alpha = 0.8, stroke = 0.3) +
+  geom_point(data = subset(metadata_bt_df_atsac_mironiche, Sex == "M"),
+             aes(fill = Treatment, shape = Sex),
+             position = position_jitterdodge(dodge.width = 0.5),
+             color = "black", size = 2, alpha = 0.8, stroke = 0.8) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  theme_minimal() +
+  labs(x = "Microniche",
+       y = expression("Relative Abundance of " * italic("Bacteroides")),
+       fill = "Treatment",
+       shape = "Sex") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ra_Bacteroides_across_microniche_claude
+
+ggsave("ra_Bacteroides_across_microniche_PR.pdf", plot = ra_Bacteroides_across_microniche_claude, device = "pdf", width = 6, height = 4)
+```
+
+#plot relative abundance of Escherichia across the gut
+```{r}
+
+ps_Escherichia_Shigella_atsac <- subset_taxa(btphylo_atsac_transformed, Genus == "Escherichia-Shigella")  
+
+otu_df_atsac_es <- as.data.frame(otu_table(ps_Escherichia_Shigella_atsac))  
+Escherichia_Shigella_df_atsac <- data.frame(Escherichia_Shigella_ra = colSums(otu_df_atsac_es[, sapply(otu_df_atsac_es, is.numeric)]))  
+
+Escherichia_Shigella_df_atsac$SampleID <- rownames(Escherichia_Shigella_df_atsac)  
+metadata_all$SampleID <- rownames(metadata_all)  
+
+# Merge the two dataframes on the "SampleID" column  
+metadata_bt_es_atsac <- merge(Escherichia_Shigella_df_atsac, metadata_all, by = "SampleID")  
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+metadata_bt_es_atsac$Treatment <- factor(metadata_bt_es_atsac$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Set factor levels for Biogeography in the desired order
+metadata_bt_es_atsac$Biogeography <- factor(metadata_bt_es_atsac$Biogeography, 
+                                            levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+#Plot relative abundance across biogeography
+ra_escherichia_across_gut <- ggplot(metadata_bt_es_atsac, aes(x = Biogeography, y = Escherichia_Shigella_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Boxplot with transparent fill
+  geom_point(aes(color = Treatment, shape = Sex),  # Map shape to Sex within geom_point
+             position = position_jitterdodge(dodge.width = 0.5), 
+             alpha = 0.8, size = 2) +  # Points with color and shape mapped
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_fill_manual
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_color_manual
+  theme_minimal() +
+  labs(x = "Biogeography",
+       y = expression("Relative Abundance of " * italic("Escherichia-Shigella")),  # Apply italics to "Escherichia-Shigella"
+       fill = "Treatment", 
+       color = "Treatment",  # Add a label for color
+       shape = "Sex") +  # Add a label for shape
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels if needed
+
+ra_escherichia_across_gut
+
+ggsave("ra_escherichia_across_gut.pdf", plot = ra_escherichia_across_gut, device = "pdf", width = 6, height = 4)
+
+
+#running stats to see if there's a significant difference between E coli relative abundance at any region of the intestines
+
+metadata_bt_es_atsac_pvb <- metadata_bt_es_atsac %>%
+  filter(Treatment %in% c("PBS", "Bacteroides"))
+
+#subset small intestine
+
+metadata_bt_es_atsac_pvb_SI <- subset(metadata_bt_es_atsac_pvb, Biogeography == "SmallIntestine")
+
+metadata_bt_es_atsac_pvb_SI_lm <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_pvb_SI)
+
+summary(metadata_bt_es_atsac_pvb_SI_lm)
+
+#subset cecum
+
+metadata_bt_es_atsac_pvb_cec <- subset(metadata_bt_es_atsac_pvb, Biogeography == "Cecum")
+
+metadata_bt_es_atsac_pvb_cec_lm <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_pvb_cec)
+
+summary(metadata_bt_es_atsac_pvb_cec_lm)
+
+#subset proximal colon
+
+metadata_bt_es_atsac_pvb_pro <- subset(metadata_bt_es_atsac_pvb, Biogeography == "ProximalColon")
+
+metadata_bt_es_atsac_pvb_pro_lm <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_pvb_pro)
+
+summary(metadata_bt_es_atsac_pvb_pro_lm)
+
+#subset distal colon
+
+metadata_bt_es_atsac_pvb_distal <- subset(metadata_bt_es_atsac_pvb, Biogeography == "DistalColon")
+
+metadata_bt_es_atsac_pvb_dis_lm <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_pvb_distal)
+
+summary(metadata_bt_es_atsac_pvb_dis_lm)
+
+```
+
+
+```{r}
+# Subset the data to include only Bacteroides treatment
+metadata_bt_es_atsac_bt <- subset(metadata_bt_es_atsac, Treatment == "Bacteroides")
+
+
+# Run the linear model
+metadata_bt_es_atsac_bt_lm <- lm(Escherichia_Shigella_ra ~ Biogeography+Sex+Microniche, data = metadata_bt_es_atsac_bt)
+
+# Display the summary of the linear model
+summary(metadata_bt_es_atsac_bt_lm)
+
+# Subset the data to include only Bacteroides treatment
+metadata_bt_es_atsac_PBS <- subset(metadata_bt_es_atsac, Treatment == "PBS")
+
+# Run the linear model
+metadata_bt_es_atsac_PBS_lm <- lm(Escherichia_Shigella_ra ~ Biogeography+Sex, data = metadata_bt_es_atsac_PBS)
+
+# Display the summary of the linear model
+summary(metadata_bt_es_atsac_PBS_lm)
+
+#Subset samples for microniche data
+metadata_bt_es_atsac_mironiche <- metadata_bt_es_atsac %>%
+  filter(!is.na(Microniche) & Microniche != "")
+
+#Plot relative abundance across microniche
+ra_escherichia_across_microniche <- ggplot(metadata_bt_es_atsac_mironiche, aes(x = Microniche, y = Escherichia_Shigella_ra, fill = Treatment)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Boxplot with transparent fill, outliers hidden
+  geom_point(aes(color = Treatment, shape = Sex),  # Map shape to Sex and color to Treatment within geom_point
+             position = position_jitterdodge(dodge.width = 0.5),
+             alpha = 0.8, size = 2) +  # Points with color and shape mapped
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Treatment fill colors
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Treatment color mapping
+  theme_minimal() +
+  labs(x = "Microniche",
+       y = expression("Relative Abundance of " * italic("Escherichia-Shigella")),  # Apply italics to "Escherichia-Shigella"
+       fill = "Treatment",
+       color = "Treatment",  # Add a label for color mapping
+       shape = "Sex") +  # Add a label for shape mapping
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels if needed
+
+# Print the plot
+print(ra_escherichia_across_microniche)
+
+ggsave("ra_escherichia_across_microniche.pdf", plot = ra_escherichia_across_microniche, device = "pdf", width = 6, height = 4)
+
+
+
+# Subset the data to include only Bacteroides treatment
+
+# Set factor levels for Biogeography in the desired order
+metadata_bt_es_atsac_mironiche$Biogeography <- factor(metadata_bt_es_atsac_mironiche$Biogeography, 
+                                            levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+metadata_bt_es_atsac_microniche_bt <- subset(metadata_bt_es_atsac_mironiche, Treatment == "Bacteroides")
+
+# Run the linear model
+metadata_bt_es_atsac_microniche_bt_lm <- lm(Escherichia_Shigella_ra ~ Microniche+Biogeography+Sex, data = metadata_bt_es_atsac_microniche_bt)
+
+# Display the summary of the linear model
+summary(metadata_bt_es_atsac_microniche_bt_lm)
+
+#running stats to see if there's a significant difference between E coli relative abundance at any microniche of the intestines
+
+metadata_bt_es_atsac_microniche_bt_pvb <- metadata_bt_es_atsac_mironiche %>%
+  filter(Treatment %in% c("PBS", "Bacteroides"))
+
+#subset small luminal contents
+
+metadata_bt_es_atsac_microniche_bt_pvb_lumen <- subset(metadata_bt_es_atsac_microniche_bt_pvb, Microniche == "LuminalContents")
+
+metadata_bt_es_atsac_microniche_bt_pvb_lumen_lm <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_microniche_bt_pvb_lumen)
+
+summary(metadata_bt_es_atsac_microniche_bt_pvb_lumen_lm)
+
+#subset small mucosalsurface
+
+metadata_bt_es_atsac_microniche_bt_pvb_mucosa <- subset(metadata_bt_es_atsac_microniche_bt_pvb, Microniche == "MucosalSurface")
+
+metadata_bt_es_atsac_microniche_bt_pvb_lumen_mucosa <- lm(Escherichia_Shigella_ra ~Treatment+Sex+Sex*Treatment, data=metadata_bt_es_atsac_microniche_bt_pvb_mucosa)
+
+summary(metadata_bt_es_atsac_microniche_bt_pvb_lumen_mucosa)
+
+```
+
+
+
+#Plot beta diversity on communities between lumen and mucosal surface. We want to see how communities compare between regions for PBS, Bacteroides, and Baseline groups
+
+#Subset data and label the non dissection samples as stool. 
+# I want to see whether region collected drives differences in microbial communities
+#First analyze just the PBS 
+```{r}
+#Merge a late baseline collection from the baseline treatment group to be able to plot stool from that group
+#Data from samples collected across gut at sacrifice
+btphylo_baseline_stool <- subset_samples(Phyloseq_object_NonContam, 
+                                      Treatment == "Baseline" & Compiled_Timepoint == "Late_Baseline")
+
+# Merge the two phyloseq objects
+phylo_microniche_comparison <- merge_phyloseq(btphylo_baseline_stool, btphylo_atsacrifice)
+
+
+
+# Extract sample data as a dataframe
+sample_data_df <- as.data.frame(sample_data(phylo_microniche_comparison))
+
+# Replace NA values in the Microniche column with "stool"
+sample_data_df$Microniche[is.na(sample_data_df$Microniche)] <- "stool"
+
+# Assign the modified sample data back to the phyloseq object
+sample_data(phylo_microniche_comparison) <- sample_data(sample_data_df)
+
+
+#Remove ASVs that do not show appear more than 1 time in more than 10% the samples
+filteredASVs = genefilter_sample(phylo_microniche_comparison, 
+                                 filterfun_sample(function(x) x > 1), 
+                                 A=0.2*nsamples(phylo_microniche_comparison))
+
+
+# Remove samples that have zero total counts
+btphylo_atsacrifice_pruned <- prune_samples(sample_sums(phylo_microniche_comparison) > 0, phylo_microniche_comparison)
+
+
+# Prune taxa based on filtered ASVs
+btphylo_atsacrifice_pruned = prune_taxa(filteredASVs, btphylo_atsacrifice_pruned)
+
+#Transform to even sampling depth.
+btphylo_atsacrifice_pruned_transformed = transform_sample_counts(btphylo_atsacrifice_pruned, function(x) x/sum(x)*100) 
+
+```
+
+
+### Calculate distance and plot PCoA across the gut
+```{r}
+# Troubleshooting: Check for NA values in the OTU table
+sum(is.na(otu_table(btphylo_atsacrifice_pruned_transformed)))
+
+# Check for rows (samples) with only zeros
+zero_rows <- rowSums(otu_table(btphylo_atsacrifice_pruned_transformed)) == 0
+sum(zero_rows)  # Count of empty samples
+
+# Replace NAs with 0s
+otu_table(btphylo_atsacrifice_pruned_transformed)[is.na(otu_table(btphylo_atsacrifice_pruned_transformed))] <- 0
+
+# Calculate Bray-Curtis dissimilarity distance matrix
+distance_bray <- phyloseq::distance(btphylo_atsacrifice_pruned_transformed, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix
+ordinate_PCoA_bray <- ordinate(btphylo_atsacrifice_pruned_transformed, method = "PCoA", distance = distance_bray)
+
+# Define a pastel color palette for Microniche
+pastel_colors <- c(
+  "LuminalContents" = "#8FCACA",  # Pastel Green
+  "MucosalSurface" = "#CCE2CB",   # Pastel Blue
+  "stool" = "#CBAACB"             # Pastel Purple
+)
+
+# Plot the results with points colored by the Treatment group
+PCoA_plot_all_biogeography <- plot_ordination(btphylo_atsacrifice_pruned_transformed, 
+                                              ordinate_PCoA_bray, 
+                                              color = "Treatment",,shape="Sex") +
+  stat_ellipse(aes(group=Treatment)) +  # Adds an ellipse for visualization
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  
+  facet_wrap(~Biogeography, ncol = 5)  # Facet into 5 columns
+
+# Print the plot
+PCoA_plot_all_biogeography
+
+
+# Save the PCoA plot as a PDF
+ggsave("PCoA_plot_biogeography.pdf", plot = PCoA_plot_all_biogeography, width = 8, height = 3, dpi = 300)
+
+PCoA_plot_all_microniche <- plot_ordination(btphylo_atsacrifice_pruned_transformed, 
+                                              ordinate_PCoA_bray, 
+                                              color = "Treatment",,shape="Sex") +
+  stat_ellipse(aes(group=Treatment)) +  # Adds an ellipse for visualization
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  
+  facet_wrap(~Microniche, ncol = 5) + # Facet into 5 columns
+  theme_bw()
+
+
+# Print the plot
+PCoA_plot_all_microniche
+
+ggsave("PCoA_plot_microniche.pdf", plot = PCoA_plot_all_microniche, width = 8, height = 3, dpi = 300)
+
+
+#help from claude
+# Remove samples where Biogeography is NA
+btphylo_atsacrifice_pruned_transformed_clean <- subset_samples(
+  btphylo_atsacrifice_pruned_transformed, 
+  !is.na(Biogeography)
+)
+
+# Then recalculate distance and ordination on the clean object
+distance_bray <- phyloseq::distance(btphylo_atsacrifice_pruned_transformed_clean, method = "bray")
+ordinate_PCoA_bray <- ordinate(btphylo_atsacrifice_pruned_transformed_clean, method = "PCoA", distance = distance_bray)
+
+# Plot using the clean object
+base_plot <- plot_ordination(btphylo_atsacrifice_pruned_transformed_clean, 
+                             ordinate_PCoA_bray, 
+                             color = "Treatment", shape = "Sex")
+
+# Build final plot
+PCoA_plot_all_biogeography_claude <- base_plot +
+  geom_point(data = subset(base_plot$data, Sex == "M"),
+             aes(fill = Treatment, shape = Sex),
+             color = "black", size = 1.5, stroke = 0.8) +
+  stat_ellipse(aes(group = Treatment)) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  facet_wrap(~Biogeography, ncol = 5) +
+  theme_bw()
+
+PCoA_plot_all_biogeography_claude
+
+# Save the PCoA plot as a PDF
+ggsave("PCoA_plot_biogeography_PR.pdf", plot = PCoA_plot_all_biogeography_claude, width = 8, height = 4, dpi = 300)
+
+# Build final plot for microniche
+
+base_plot_2 <- plot_ordination(btphylo_atsacrifice_pruned_transformed, 
+                             ordinate_PCoA_bray, 
+                             color = "Treatment", shape = "Sex")
+
+PCoA_plot_all_microniche_claude <- base_plot_2 +
+  geom_point(data = subset(base_plot_2$data, Sex == "F"),
+             aes(x = Axis.1, y = Axis.2, fill = Treatment, shape = Sex),
+             color = NA, size = 1.5) +
+  geom_point(data = subset(base_plot_2$data, Sex == "M"),
+             aes(x = Axis.1, y = Axis.2, fill = Treatment, shape = Sex),
+             color = "black", size = 1.5, stroke = 0.8) +
+  stat_ellipse(aes(group = Treatment)) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  facet_wrap(~Microniche, ncol = 5) +
+  theme_bw()
+
+PCoA_plot_all_microniche_claude
+
+ggsave("PCoA_plot_microniche_PR.pdf", plot = PCoA_plot_all_microniche_claude, width = 8, height = 4, dpi = 300)
+
+
+
+```
+#Plot alpha diversity across the gut and microniches
+```{r}
+#Plot  alpha diversity for each region. Here you should use unnormalized data.
+alpha_diversity_shannon_biogeography <- plot_richness(btphylo_atsacrifice, x="Biogeography", color = "Treatment", measures=c("Shannon"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Shannon", x = "Biogeography", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_shannon_biogeography
+
+alpha_diversity_simpson_biogeography <- plot_richness(btphylo_atsacrifice, x="Biogeography", color = "Treatment", measures=c("Simpson"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Simpson", x = "Biogeography", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_simpson_biogeography
+
+
+alpha_diversity_Chao1_biogeography <- plot_richness(btphylo_atsacrifice, x="Biogeography", color = "Treatment", measures=c("Chao1"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Chao1", x = "Biogeography", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_Chao1_biogeography
+
+  
+# Step 1: Estimate Fisher alpha diversity from the phyloseq object
+fisher_diversity <- estimate_richness(btphylo_atsacrifice, measures = "Fisher")
+
+# Step 2: Combine Fisher diversity with sample data
+# Convert the Fisher diversity to a data frame
+fisher_df <- as.data.frame(fisher_diversity)
+
+# Ensure the row names (samples) are included in the data frame
+fisher_df$Sample <- rownames(fisher_df)
+
+# Merge with your metadata
+combined_df <- fisher_df %>%
+  left_join(metadata_all, by = "Sample")  # Adjust "SampleID" according to your metadata
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+combined_df$Treatment <- factor(combined_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Set factor levels for Biogeography in the desired order
+combined_df$Biogeography <- factor(combined_df$Biogeography, 
+                                            levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+
+# Step 3: Create the alpha diversity plot for Fisher's measure across gut
+alpha_fisher_across_gut <- ggplot(combined_df, 
+                                   aes(x = Biogeography, y = Fisher, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal() +theme_minimal() +
+  labs(x = "Biogeography",
+       y = expression("Alpha Diversity - Fisher"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_fisher_across_gut)
+
+
+ggsave("alpha_diversity_fisher_boxplot_acrossgut.pdf", plot = alpha_fisher_across_gut, device = "pdf", width = 5, height = 4)
+
+#Run stats to see if there's a region that has more alpha diversity at baseline
+# Subset the data for Baseline
+acrossgut_baseline_fisher_df <- combined_df %>%
+  filter(Treatment == "Baseline")
+
+shapiro_acrossgut_baseline <- shapiro.test(acrossgut_baseline_fisher_df$Fisher)
+shapiro_acrossgut_baseline
+
+fisher_alpha_lm_acrossgut_baseline <- lm(Fisher ~ Biogeography+Sex+Biogeography*Sex+Microniche, data = acrossgut_baseline_fisher_df)
+summary(fisher_alpha_lm_acrossgut_baseline)
+
+
+#Run stats for alpha diversity along the gut. Run a lm for each region to see if there's a difference between PBS, 
+
+# Subset the data for SmallIntestine
+small_intestine_fisher_df <- combined_df %>%
+  filter(Biogeography == "SmallIntestine")
+
+
+small_intestine_pvb_fisher_df <- small_intestine_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_smallintestine_fisher <- shapiro.test(small_intestine_fisher_df$Fisher)
+shapiro_acrossgut_smallintestine_fisher
+
+fisher_alpha_lm_small_intestine <- lm(Fisher ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_fisher_df)
+summary(fisher_alpha_lm_small_intestine)
+
+fisher_alpha_lm_small_intestine_pvb <- lm(Fisher ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_pvb_fisher_df)
+summary(fisher_alpha_lm_small_intestine_pvb)
+
+# Subset the data for Cecum
+Cecum_fisher_df <- combined_df %>%
+  filter(Biogeography == "Cecum")
+
+
+
+cecum_pvb_fisher_df <- Cecum_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+Cecum_fisher_df$Treatment <- factor(Cecum_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Run the linear model on the subset
+shapiro_acrossgut_cecum_fisher <- shapiro.test(Cecum_fisher_df$Fisher)
+shapiro_acrossgut_cecum_fisher
+
+fisher_alpha_lm_cecum <- lm(log2(Fisher) ~ Treatment + Sex + Microniche + Treatment*Sex, data = Cecum_fisher_df)
+summary(fisher_alpha_lm_cecum)
+
+shapiro_acrossgut_cecum_fisher_pvb <- shapiro.test(cecum_pvb_fisher_df$Fisher)
+shapiro_acrossgut_cecum_fisher_pvb
+
+fisher_alpha_lm_cecum_pvb <- lm(Fisher ~ Treatment + Sex + Microniche + Treatment*Sex, data = cecum_pvb_fisher_df)
+summary(fisher_alpha_lm_cecum_pvb)
+
+# Subset the data for ProximalColon
+
+ProximalColon_fisher_df <- combined_df %>%
+  filter(Biogeography == "ProximalColon")
+
+proximalcolon_pvb_fisher_df <- ProximalColon_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+ProximalColon_fisher_df$Treatment <- factor(ProximalColon_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+ProximalColon_fisher_df$Treatment <- factor(ProximalColon_fisher_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_proximalcolon_fisher <- shapiro.test(ProximalColon_fisher_df$Fisher)
+shapiro_acrossgut_proximalcolon_fisher
+
+fisher_alpha_lm_ProximalColon <- lm(log2(Fisher) ~ Treatment + Sex + Microniche+Treatment*Sex, data = ProximalColon_fisher_df)
+summary(fisher_alpha_lm_ProximalColon)
+
+shapiro_acrossgut_proximalcolon_fisher_pvb<- shapiro.test(proximalcolon_pvb_fisher_df$Fisher)
+shapiro_acrossgut_proximalcolon_fisher_pvb
+
+fisher_alpha_lm_ProximalColon_pvb <- lm(Fisher ~ Treatment + Sex + Microniche+Treatment*Sex, data = proximalcolon_pvb_fisher_df)
+summary(fisher_alpha_lm_ProximalColon_pvb)
+
+
+# Subset the data for DistalColon
+
+DistalColon_fisher_df <- combined_df %>%
+  filter(Biogeography == "DistalColon")
+
+distalcolon_pvb_fisher_df <- DistalColon_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+DistalColon_fisher_df$Treatment <- factor(DistalColon_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+DistalColon_fisher_df$Treatment <- factor(DistalColon_fisher_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_distalcolon_fisher <- shapiro.test(DistalColon_fisher_df$Fisher)
+shapiro_acrossgut_distalcolon_fisher
+
+fisher_alpha_lm_DistalColon <- lm(log2(Fisher) ~ Treatment + Sex + Microniche+Treatment*Sex, data = DistalColon_fisher_df)
+summary(fisher_alpha_lm_DistalColon)
+
+shapiro_acrossgut_distalcolon_fisher_pvb <- shapiro.test(distalcolon_pvb_fisher_df$Fisher)
+shapiro_acrossgut_distalcolon_fisher_pvb
+
+fisher_alpha_lm_DistalColon_pvb <- lm(Fisher ~ Treatment + Sex + Microniche+Treatment*Sex, data = distalcolon_pvb_fisher_df)
+summary(fisher_alpha_lm_DistalColon_pvb)
+
+
+#Plot alpha diverisity for microniche
+btphylo_atsacrifice_microniche <- subset_samples(btphylo_atsacrifice, !is.na(Microniche) & Microniche != "")
+
+alpha_diversity_shannon_Microniche <- plot_richness(btphylo_atsacrifice_microniche, x="Microniche", color = "Treatment", measures=c("Shannon"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Shannon", x = "Microniche", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_shannon_Microniche
+
+alpha_diversity_Chao1_Microniche <- plot_richness(btphylo_atsacrifice_microniche, x="Microniche", color = "Treatment", measures=c("Chao1"))+
+  geom_boxplot()+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  labs(y = "Alpha Diversity - Chao-1", x = "Microniche", color = "Treatment Group")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5))
+  
+
+alpha_diversity_Chao1_Microniche
+
+#Plot alpha diversity between microniches
+combined_df_filtered <- combined_df %>%
+  filter(!is.na(Microniche))  # Keep only rows where Microniche is not NA
+
+
+alpha_fisher_across_microniche <- ggplot(combined_df_filtered, 
+                                   aes(x = Microniche, y = Fisher, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal() +theme_minimal() +
+  labs(x = "Microniche",
+       y = expression("Alpha Diversity - Fisher"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_fisher_across_microniche)
+
+ggsave("alpha_diversity_fisher_boxplot_microniche.pdf", plot = alpha_fisher_across_microniche, device = "pdf", width = 5, height = 4)
+
+#Run stats to see if there's a microniche that has more alpha diversity at baseline
+# Subset the data for Baseline
+microniche_baseline_fisher_df <- combined_df_filtered %>%
+  filter(Treatment == "Baseline")
+
+shapiro_microniche_baseline_fisher <- shapiro.test(microniche_baseline_fisher_df$Fisher)
+shapiro_microniche_baseline_fisher
+
+fisher_alpha_lm_microniche_baseline <- lm(Fisher ~ Microniche+Microniche*Sex+Biogeography+Microniche*Biogeography, data = microniche_baseline_fisher_df)
+summary(fisher_alpha_lm_microniche_baseline)
+
+
+
+
+# Subset the data for LuminalContents
+
+luminalcontents_fisher_df <- combined_df_filtered %>%
+  filter(Microniche == "LuminalContents")
+
+luminalcontents_pvb_fisher_df <- luminalcontents_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+luminalcontents_fisher_df$Treatment <- factor(luminalcontents_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+luminalcontents_fisher_df$Treatment <- factor(luminalcontents_fisher_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_luminalcontents_fisher <- shapiro.test(luminalcontents_fisher_df$Fisher)
+shapiro_microniche_luminalcontents_fisher
+
+fisher_alpha_lm_luminalcontents <- lm(log2(Fisher) ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_fisher_df)
+summary(fisher_alpha_lm_luminalcontents)
+
+shapiro_microniche_luminalcontents_fisher_pvb <- shapiro.test(luminalcontents_pvb_fisher_df$Fisher)
+shapiro_microniche_luminalcontents_fisher_pvb
+
+fisher_alpha_pvb_lm_luminalcontents <- lm(Fisher ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_pvb_fisher_df)
+summary(fisher_alpha_pvb_lm_luminalcontents)
+
+# Subset the data for MucosalSurface
+
+MucosalSurface_fisher_df <- combined_df_filtered %>%
+  filter(Microniche == "MucosalSurface")
+
+MucosalSurface_pvb_fisher_df <- MucosalSurface_fisher_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+MucosalSurface_fisher_df$Treatment <- factor(MucosalSurface_fisher_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+MucosalSurface_fisher_df$Treatment <- factor(MucosalSurface_fisher_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_mucosalsurface_fisher <- shapiro.test(MucosalSurface_fisher_df$Fisher)
+shapiro_microniche_mucosalsurface_fisher
+
+fisher_alpha_lm_MucosalSurface <- lm(log2(Fisher) ~ Treatment + Sex +Treatment*Sex + Biogeography, data = MucosalSurface_fisher_df)
+summary(fisher_alpha_lm_MucosalSurface)
+
+shapiro_microniche_mucosalsurface_fisher_pvb <- shapiro.test(MucosalSurface_pvb_fisher_df$Fisher)
+shapiro_microniche_mucosalsurface_fisher_pvb
+
+fisher_alpha_lm_MucosalSurface_pvb <- lm(Fisher ~ Treatment + Sex +Treatment*Sex+Biogeography, data = MucosalSurface_pvb_fisher_df)
+summary(fisher_alpha_lm_MucosalSurface_pvb)
+
+```
+
+
+Plot the Pielou's Evenness and Observed Richness across gut
+```{r}
+# Step 1: Estimate Shannon alpha diversity from the phyloseq object
+Shannon_diversity_atsacrifice <- estimate_richness(btphylo_atsacrifice, measures = "Shannon")
+observed_diversity_atsacrifice <- estimate_richness(btphylo_atsacrifice, measures = "Observed")
+
+
+# Step 2: Combine Shannon diversity with sample data
+# Convert the Shannon diversity to a data frame
+Shannon_atsacrifice_df <- as.data.frame(Shannon_diversity_atsacrifice)
+observed_atsacrifice_df <- as.data.frame(observed_diversity_atsacrifice)
+
+
+# Ensure the row names (samples) are included in the data frame
+Shannon_atsacrifice_df$Sample <- rownames(Shannon_atsacrifice_df)
+
+observed_atsacrifice_df$Sample <- rownames(observed_atsacrifice_df)
+observed_atsacrifice_df$Sample <- gsub("X", "", observed_atsacrifice_df$Sample) #remove the x that is coming up for some reason
+
+
+metadata_all$Sample <- rownames(metadata_all)
+
+# Merge with your metadata
+combined_atsacrifice_df <- Shannon_atsacrifice_df %>%
+  left_join(metadata_all, by ="Sample")  # Adjust "SampleID" according to your metadata
+
+# Merge with your metadata
+combined_atsacrifice_df <- combined_atsacrifice_df %>%
+  left_join(observed_atsacrifice_df, by ="Sample")  # Adjust "SampleID" according to your metadata
+
+combined_atsacrifice_df$Pielou <- combined_atsacrifice_df$Shannon / log(combined_atsacrifice_df$Observed)
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+combined_atsacrifice_df$Treatment <- factor(combined_atsacrifice_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Set factor levels for Treatment to ensure "PBS" comes before "Bacteroides"
+combined_atsacrifice_df$Biogeography <- factor(combined_atsacrifice_df$Biogeography, 
+                                         levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon"))
+
+
+combined_atsacrifice_filtered <- combined_atsacrifice_df %>%
+  filter(Compiled_Timepoint != "Baseline")  # Keep only rows where Compiled_Timepoint is not "Baseline"
+
+
+
+alpha_Observed_across_gut <- ggplot(combined_atsacrifice_filtered, 
+                                   aes(x = Biogeography, y = Observed, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Experiment Day",
+       y = expression("Alpha Diversity - Observed"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_Observed_across_gut)
+
+
+# Step 3: Create the alpha diversity plot for Shannon's measure across gut
+alpha_Pielou_across_gut <- ggplot(combined_atsacrifice_filtered, 
+                                   aes(x = Biogeography, y = Pielou, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Biogeography",
+       y = expression("Alpha Diversity - Pielou"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+# Display the plot
+print(alpha_Pielou_across_gut)
+
+ggsave("alpha_Pielou_across_gut_boxplot.pdf", plot = alpha_Pielou_across_gut, device = "pdf", width = 6, height = 4)
+
+ggsave("alpha_Observed_across_gut_boxplot.pdf", plot = alpha_Observed_across_gut, device = "pdf", width = 6, height = 4)
+
+```
+#Run stats on observed alpha diversity across biogeography
+```{r}
+#Run stats to see if there's a region that has more alpha diversity at baseline
+# Subset the data for Baseline
+acrossgut_baseline_Observed_df <- combined_atsacrifice_filtered %>%
+  filter(Treatment == "Baseline")
+
+shapiro_acrossgut_baseline_observed <- shapiro.test(acrossgut_baseline_Observed_df$Observed)
+shapiro_acrossgut_baseline_observed
+
+Observed_alpha_lm_acrossgut_baseline <- lm(Observed ~ Biogeography+Sex+Biogeography*Sex+Microniche, data = acrossgut_baseline_Observed_df)
+summary(Observed_alpha_lm_acrossgut_baseline)
+
+
+#Run stats for alpha diversity along the gut. Run a lm for each region to see if there's a difference between PBS, 
+
+# Subset the data for SmallIntestine
+small_intestine_Observed_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "SmallIntestine")
+
+
+small_intestine_pvb_Observed_df <- small_intestine_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_smallintestine_Observed <- shapiro.test(small_intestine_Observed_df$Observed)
+shapiro_acrossgut_smallintestine_Observed
+
+Observed_alpha_lm_small_intestine <- lm(Observed ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_Observed_df)
+summary(Observed_alpha_lm_small_intestine)
+
+shapiro_acrossgut_smallintestine_Observed_pvb <- shapiro.test(small_intestine_pvb_Observed_df$Observed)
+shapiro_acrossgut_smallintestine_Observed_pvb
+
+Observed_alpha_lm_small_intestine_pvb <- lm(Observed ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_pvb_Observed_df)
+summary(Observed_alpha_lm_small_intestine_pvb)
+
+# Subset the data for Cecum
+Cecum_Observed_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "Cecum")
+
+
+
+cecum_pvb_Observed_df <- Cecum_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+Cecum_Observed_df$Treatment <- factor(Cecum_Observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Run the linear model on the subset
+shapiro_acrossgut_cecum_Observed <- shapiro.test(Cecum_Observed_df$Observed)
+shapiro_acrossgut_cecum_Observed
+
+Observed_alpha_lm_cecum <- lm(log2(Observed) ~ Treatment + Sex + Microniche + Treatment*Sex, data = Cecum_Observed_df)
+summary(Observed_alpha_lm_cecum)
+
+shapiro_acrossgut_cecum_Observed_pvb <- shapiro.test(cecum_pvb_Observed_df$Observed)
+shapiro_acrossgut_cecum_Observed_pvb
+
+Observed_alpha_lm_cecum_pvb <- lm(Observed ~ Treatment + Sex + Microniche + Treatment*Sex, data = cecum_pvb_Observed_df)
+summary(Observed_alpha_lm_cecum_pvb)
+
+# Subset the data for ProximalColon
+
+ProximalColon_Observed_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "ProximalColon")
+
+proximalcolon_pvb_Observed_df <- ProximalColon_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+ProximalColon_Observed_df$Treatment <- factor(ProximalColon_Observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+ProximalColon_Observed_df$Treatment <- factor(ProximalColon_Observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_proximalcolon_Observed <- shapiro.test(ProximalColon_Observed_df$Observed)
+shapiro_acrossgut_proximalcolon_Observed
+
+Observed_alpha_lm_ProximalColon <- lm(log2(Observed) ~ Treatment + Sex + Microniche+Treatment*Sex, data = ProximalColon_Observed_df)
+summary(Observed_alpha_lm_ProximalColon)
+
+shapiro_acrossgut_proximalcolon_Observed_pvb<- shapiro.test(proximalcolon_pvb_Observed_df$Observed)
+shapiro_acrossgut_proximalcolon_Observed_pvb
+
+Observed_alpha_lm_ProximalColon_pvb <- lm(log2(Observed) ~ Treatment + Sex + Microniche+Treatment*Sex, data = proximalcolon_pvb_Observed_df)
+summary(Observed_alpha_lm_ProximalColon_pvb)
+
+
+# Subset the data for DistalColon
+
+DistalColon_Observed_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "DistalColon")
+
+distalcolon_pvb_Observed_df <- DistalColon_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+DistalColon_Observed_df$Treatment <- factor(DistalColon_Observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+DistalColon_Observed_df$Treatment <- factor(DistalColon_Observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_distalcolon_Observed <- shapiro.test(DistalColon_Observed_df$Observed)
+shapiro_acrossgut_distalcolon_Observed
+
+Observed_alpha_lm_DistalColon <- lm(log2(Observed) ~ Treatment + Sex + Microniche+Treatment*Sex, data = DistalColon_Observed_df)
+summary(Observed_alpha_lm_DistalColon)
+
+shapiro_acrossgut_distalcolon_Observed_pvb <- shapiro.test(distalcolon_pvb_Observed_df$Observed)
+shapiro_acrossgut_distalcolon_Observed_pvb
+
+Observed_alpha_lm_DistalColon_pvb <- lm(log2(Observed) ~ Treatment + Sex + Microniche+Treatment*Sex, data = distalcolon_pvb_Observed_df)
+summary(Observed_alpha_lm_DistalColon_pvb)
+
+```
+
+#Run stats on Pielou alpha diversity across biogeography
+```{r}
+#Run stats to see if there's a region that has more alpha diversity at baseline
+# Subset the data for Baseline
+acrossgut_baseline_Pielou_df <- combined_atsacrifice_filtered %>%
+  filter(Treatment == "Baseline")
+
+shapiro_acrossgut_baseline_Pielou <- shapiro.test(acrossgut_baseline_Pielou_df$Pielou)
+shapiro_acrossgut_baseline_Pielou
+
+Pielou_alpha_lm_acrossgut_baseline <- lm(log2(Pielou) ~ Biogeography+Sex+Biogeography*Sex+Microniche, data = acrossgut_baseline_Pielou_df)
+summary(Pielou_alpha_lm_acrossgut_baseline)
+
+
+#Run stats for alpha diversity along the gut. Run a lm for each region to see if there's a difference between PBS, 
+
+# Subset the data for SmallIntestine
+small_intestine_Pielou_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "SmallIntestine")
+
+
+small_intestine_pvb_Pielou_df <- small_intestine_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_smallintestine_Pielou <- shapiro.test(small_intestine_Pielou_df$Pielou)
+shapiro_acrossgut_smallintestine_Pielou
+
+Pielou_alpha_lm_small_intestine <- lm(log2(Pielou) ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_Pielou_df)
+summary(Pielou_alpha_lm_small_intestine)
+
+shapiro_acrossgut_smallintestine_Pielou_pvb <- shapiro.test(small_intestine_pvb_Pielou_df$Pielou)
+shapiro_acrossgut_smallintestine_Pielou_pvb
+
+Pielou_alpha_lm_small_intestine_pvb <- lm(Pielou ~ Treatment + Sex + Microniche+Treatment*Sex, data = small_intestine_pvb_Pielou_df)
+summary(Pielou_alpha_lm_small_intestine_pvb)
+
+# Subset the data for Cecum
+Cecum_Pielou_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "Cecum")
+
+
+
+cecum_pvb_Pielou_df <- Cecum_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+Cecum_Pielou_df$Treatment <- factor(Cecum_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+# Run the linear model on the subset
+shapiro_acrossgut_cecum_Pielou <- shapiro.test(Cecum_Pielou_df$Pielou)
+shapiro_acrossgut_cecum_Pielou
+
+Pielou_alpha_lm_cecum <- lm(Pielou ~ Treatment + Sex + Microniche + Treatment*Sex, data = Cecum_Pielou_df)
+summary(Pielou_alpha_lm_cecum)
+
+shapiro_acrossgut_cecum_Pielou_pvb <- shapiro.test(cecum_pvb_Pielou_df$Pielou)
+shapiro_acrossgut_cecum_Pielou_pvb
+
+Pielou_alpha_lm_cecum_pvb <- lm(Pielou ~ Treatment + Sex + Microniche + Treatment*Sex, data = cecum_pvb_Pielou_df)
+summary(Pielou_alpha_lm_cecum_pvb)
+
+# Subset the data for ProximalColon
+
+ProximalColon_Pielou_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "ProximalColon")
+
+proximalcolon_pvb_Pielou_df <- ProximalColon_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+ProximalColon_Pielou_df$Treatment <- factor(ProximalColon_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+ProximalColon_Pielou_df$Treatment <- factor(ProximalColon_Pielou_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_proximalcolon_Pielou <- shapiro.test(ProximalColon_Pielou_df$Pielou)
+shapiro_acrossgut_proximalcolon_Pielou
+
+Pielou_alpha_lm_ProximalColon <- lm(log2(Pielou) ~ Treatment + Sex + Microniche+Treatment*Sex, data = ProximalColon_Pielou_df)
+summary(Pielou_alpha_lm_ProximalColon)
+
+shapiro_acrossgut_proximalcolon_Pielou_pvb<- shapiro.test(proximalcolon_pvb_Pielou_df$Pielou)
+shapiro_acrossgut_proximalcolon_Pielou_pvb
+
+Pielou_alpha_lm_ProximalColon_pvb <- lm(log2(Pielou) ~ Treatment + Sex + Microniche+Treatment*Sex, data = proximalcolon_pvb_Pielou_df)
+summary(Pielou_alpha_lm_ProximalColon_pvb)
+
+
+# Subset the data for DistalColon
+
+DistalColon_Pielou_df <- combined_atsacrifice_filtered %>%
+  filter(Biogeography == "DistalColon")
+
+distalcolon_pvb_Pielou_df <- DistalColon_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+DistalColon_Pielou_df$Treatment <- factor(DistalColon_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+DistalColon_Pielou_df$Treatment <- factor(DistalColon_Pielou_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+
+# Run the linear model on the subset
+shapiro_acrossgut_distalcolon_Pielou <- shapiro.test(DistalColon_Pielou_df$Pielou)
+shapiro_acrossgut_distalcolon_Pielou
+
+Pielou_alpha_lm_DistalColon <- lm(Pielou ~ Treatment + Sex + Microniche+Treatment*Sex, data = DistalColon_Pielou_df)
+summary(Pielou_alpha_lm_DistalColon)
+
+shapiro_acrossgut_distalcolon_Pielou_pvb <- shapiro.test(distalcolon_pvb_Pielou_df$Pielou)
+shapiro_acrossgut_distalcolon_Pielou_pvb
+
+Pielou_alpha_lm_DistalColon_pvb <- lm(Pielou ~ Treatment + Sex + Microniche+Treatment*Sex, data = distalcolon_pvb_Pielou_df)
+summary(Pielou_alpha_lm_DistalColon_pvb)
+
+```
+
+Plot the Pielou's Evenness and Observed Richness across microniche
+
+```{r}
+
+combined_atsacrifice_filtered_microniche <- combined_atsacrifice_filtered %>%
+  filter(!is.na(Microniche))  # Keep only rows where Microniche is not NA
+
+
+alpha_Observed_across_microniche <- ggplot(combined_atsacrifice_filtered_microniche, 
+                                   aes(x = Microniche, y = Observed, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Microniche",
+       y = expression("Alpha Diversity - Observed"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+alpha_Observed_across_microniche
+
+
+alpha_Pielou_across_microniche <- ggplot(combined_atsacrifice_filtered_microniche, 
+                                   aes(x = Microniche, y = Pielou, fill = Treatment)) +
+  geom_boxplot(color = "black", alpha = 0.6) +  # Boxplot with borders and transparency
+  geom_point(aes(color = Treatment, shape = Sex),  # Points mapped to Treatment and shape
+             position = position_jitterdodge(dodge.width = 0.75),  # Jitter points for visibility
+             alpha = 0.8, size = 2) +  # Points with defined aesthetics
+   scale_fill_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +  # Fill colors for treatments
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                 "PBS" = "lightblue", 
+                                 "Bacteroides" = "orange")) +  # Color mapping for points
+  theme_minimal()+
+  labs(x = "Microniche",
+       y = expression("Alpha Diversity - Pielou"),  # Y-axis label with expression
+       fill = "Treatment") +  # Updated fill label
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+        legend.position = "right")  # Position the legend
+
+alpha_Pielou_across_microniche
+
+ggsave("alpha_Pielou_across__microniche_boxplot.pdf", plot = alpha_Pielou_across_microniche, device = "pdf", width = 6, height = 4)
+
+ggsave("alpha_Observed_across_microniche_boxplot.pdf", plot = alpha_Observed_across_microniche, device = "pdf", width = 6, height = 4)
+
+```
+
+#Run stats on Observed alpha diversity across microniches
+```{r}
+#Run stats to see if there's a microniche that has more alpha diversity at baseline
+# Subset the data for Baseline
+microniche_baseline_Observed_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Treatment == "Baseline")
+
+shapiro_microniche_baseline_Observed <- shapiro.test(microniche_baseline_Observed_df$Observed)
+shapiro_microniche_baseline_Observed
+
+Observed_alpha_lm_microniche_baseline <- lm(log2(Observed) ~ Microniche+Microniche*Sex+Biogeography+Microniche*Biogeography, data = microniche_baseline_Observed_df)
+summary(Observed_alpha_lm_microniche_baseline)
+
+
+
+
+# Subset the data for LuminalContents
+
+luminalcontents_Observed_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Microniche == "LuminalContents")
+
+luminalcontents_pvb_Observed_df <- luminalcontents_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+luminalcontents_Observed_df$Treatment <- factor(luminalcontents_Observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+luminalcontents_Observed_df$Treatment <- factor(luminalcontents_Observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_luminalcontents_Observed <- shapiro.test(luminalcontents_Observed_df$Observed)
+shapiro_microniche_luminalcontents_Observed
+
+Observed_alpha_lm_luminalcontents <- lm(log2(Observed) ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_Observed_df)
+summary(Observed_alpha_lm_luminalcontents)
+
+shapiro_microniche_luminalcontents_Observed_pvb <- shapiro.test(luminalcontents_pvb_Observed_df$Observed)
+shapiro_microniche_luminalcontents_Observed_pvb
+
+Observed_alpha_pvb_lm_luminalcontents <- lm(Observed ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_pvb_Observed_df)
+summary(Observed_alpha_pvb_lm_luminalcontents)
+
+# Subset the data for MucosalSurface
+
+MucosalSurface_Observed_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Microniche == "MucosalSurface")
+
+MucosalSurface_pvb_Observed_df <- MucosalSurface_Observed_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+MucosalSurface_Observed_df$Treatment <- factor(MucosalSurface_Observed_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+MucosalSurface_Observed_df$Treatment <- factor(MucosalSurface_Observed_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_mucosalsurface_Observed <- shapiro.test(MucosalSurface_Observed_df$Observed)
+shapiro_microniche_mucosalsurface_Observed
+
+Observed_alpha_lm_MucosalSurface <- lm(log2(Observed) ~ Treatment + Sex +Treatment*Sex + Biogeography, data = MucosalSurface_Observed_df)
+summary(Observed_alpha_lm_MucosalSurface)
+
+shapiro_microniche_mucosalsurface_Observed_pvb <- shapiro.test(MucosalSurface_pvb_Observed_df$Observed)
+shapiro_microniche_mucosalsurface_Observed_pvb
+
+Observed_alpha_lm_MucosalSurface_pvb <- lm(Observed ~ Treatment + Sex +Treatment*Sex+Biogeography, data = MucosalSurface_pvb_Observed_df)
+summary(Observed_alpha_lm_MucosalSurface_pvb)
+
+```
+
+#Run stats on Pielou alpha diversity across microniches
+```{r}
+#Run stats to see if there's a microniche that has more alpha diversity at baseline
+# Subset the data for Baseline
+microniche_baseline_Pielou_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Treatment == "Baseline")
+
+shapiro_microniche_baseline_Pielou <- shapiro.test(microniche_baseline_Pielou_df$Pielou)
+shapiro_microniche_baseline_Pielou
+
+Pielou_alpha_lm_microniche_baseline <- lm(log2(Pielou) ~ Microniche+Microniche*Sex+Biogeography+Microniche*Biogeography, data = microniche_baseline_Pielou_df)
+summary(Pielou_alpha_lm_microniche_baseline)
+
+
+
+
+# Subset the data for LuminalContents
+
+luminalcontents_Pielou_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Microniche == "LuminalContents")
+
+luminalcontents_pvb_Pielou_df <- luminalcontents_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+luminalcontents_Pielou_df$Treatment <- factor(luminalcontents_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+luminalcontents_Pielou_df$Treatment <- factor(luminalcontents_Pielou_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_luminalcontents_Pielou <- shapiro.test(luminalcontents_Pielou_df$Pielou)
+shapiro_microniche_luminalcontents_Pielou
+
+Pielou_alpha_lm_luminalcontents <- lm(log2(Pielou) ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_Pielou_df)
+summary(Pielou_alpha_lm_luminalcontents)
+
+shapiro_microniche_luminalcontents_Pielou_pvb <- shapiro.test(luminalcontents_pvb_Pielou_df$Pielou)
+shapiro_microniche_luminalcontents_Pielou_pvb
+
+Pielou_alpha_pvb_lm_luminalcontents <- lm(Pielou ~ Treatment + Sex +Treatment*Sex+Biogeography, data = luminalcontents_pvb_Pielou_df)
+summary(Pielou_alpha_pvb_lm_luminalcontents)
+
+# Subset the data for MucosalSurface
+
+MucosalSurface_Pielou_df <- combined_atsacrifice_filtered_microniche %>%
+  filter(Microniche == "MucosalSurface")
+
+MucosalSurface_pvb_Pielou_df <- MucosalSurface_Pielou_df %>% filter(Treatment %in% c("PBS", "Bacteroides"))
+
+
+MucosalSurface_Pielou_df$Treatment <- factor(MucosalSurface_Pielou_df$Treatment, 
+                                         levels = c("Baseline", "PBS", "Bacteroides"))
+
+MucosalSurface_Pielou_df$Treatment <- factor(MucosalSurface_Pielou_df$Treatment, 
+                                         levels = c("PBS", "Bacteroides", "Baseline"))
+
+# Run the linear model on the subset
+shapiro_microniche_mucosalsurface_Pielou <- shapiro.test(MucosalSurface_Pielou_df$Pielou)
+shapiro_microniche_mucosalsurface_Pielou
+
+Pielou_alpha_lm_MucosalSurface <- lm(Pielou ~ Treatment + Sex +Treatment*Sex + Biogeography, data = MucosalSurface_Pielou_df)
+summary(Pielou_alpha_lm_MucosalSurface)
+
+shapiro_microniche_mucosalsurface_Pielou_pvb <- shapiro.test(MucosalSurface_pvb_Pielou_df$Pielou)
+shapiro_microniche_mucosalsurface_Pielou_pvb
+
+Pielou_alpha_lm_MucosalSurface_pvb <- lm(Pielou ~ Treatment + Sex +Treatment*Sex+Biogeography, data = MucosalSurface_pvb_Pielou_df)
+summary(Pielou_alpha_lm_MucosalSurface_pvb)
+
+```
+
+
+
+```
+
+```{r}
+#Plot the results with points colored by the Treatment group.
+PCoA_plot_all <- plot_ordination(btphylo_atsacrifice_pruned_transformed, ordinate_PCoA_bray, color = "Treatment",shape="Sex")+
+  stat_ellipse(aes(group=Treatment)) + #adds an ellipse to a scatter plot to help visualize the distribution of points in the plot. The ellipse is drawn using a confidence interval, which can be specified using the level argument. By default, stat_ellipse() uses a 95% confidence interval.
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Corrected scale_color_manual
+   facet_wrap(~Microniche, ncol=3)
+
+PCoA_plot_all
+
+# Save the PCoA plot as a PDF
+ggsave("PCoA_plot_Microniches.pdf", plot = PCoA_plot_all, width = 8, height = 5, dpi = 300)
+
+
+
+```
+
+
+#Run stats to see if Treatment has a significant effect on beta diversity in each biogeography, you can subset the data to only include samples from the small intestine and then run the PERMANOVA analysis. Here is the code that will do this:
+```{r}
+
+
+#Subset phyloseq object to only have the data from Small Intestine
+btphylo_atsacrifice_pruned_transformed_smallintestine <- subset_samples(btphylo_atsacrifice_pruned_transformed_clean, 
+                                                                       Biogeography %in% "SmallIntestine")
+
+#Calculate Bray-Curtis dissimilarity distance matrix
+distance_bray_smallintestine = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_smallintestine, method = "bray")
+
+#Perform a principal coordinate analysis (PCoA) on the distance matrix
+smallintestine_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_smallintestine, 
+                                             method = "PCoA", 
+                                             distance = distance_bray_smallintestine)
+
+
+PCoA_plot_smallintestine <- plot_ordination(btphylo_atsacrifice_pruned_transformed_smallintestine, smallintestine_ordinate_PCoA_bray, color = "Treatment")+
+  theme_bw()+
+  stat_ellipse() #adds an ellipse to a scatter plot to help visualize the distribution of points in the plot. The ellipse is drawn using a confidence interval, which can be specified using the level argument. By default, stat_ellipse() uses a 95% confidence interval.
+PCoA_plot_smallintestine+
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+ord_smallintestine_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_smallintestine))
+ord_smallintestine_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_smallintestine_df$SeqCoastOrder, ord_smallintestine_df$Cage, ord_smallintestine_df$Mouse, drop = TRUE)
+ord_smallintestine_df$SeqCoastOrder_Cage <- interaction(ord_smallintestine_df$SeqCoastOrder, ord_smallintestine_df$Cage, drop = TRUE)
+
+# Run PERMANOVA using adonis2
+smallintestine_perm_results <- adonis2(distance_bray_smallintestine ~ Treatment + Sex + Treatment*Sex + Microniche + SeqCoastOrder_Cage_Mouse+SeqCoastOrder:Cage, 
+                                       data = ord_smallintestine_df, 
+                                       method="bray", 
+                                       permutations = 999,
+                                       by="terms")
+ 
+
+smallintestine_perm_results
+
+
+
+# Run pairwise Adonis
+smallintestine_pairwise_results <- pairwise.adonis(
+  x = distance_bray_smallintestine,                  # Bray-Curtis distance matrix
+  factors = ord_smallintestine_df$Treatment,         # The grouping factor (Treatment)
+  sim.function = "vegdist",                           # Use vegan distance function
+  sim.method = "bray",                               # Bray-Curtis method
+  p.adjust.m = "bonferroni",                         # Adjust p-values using Bonferroni correction
+  perm = 999                                         # Number of permutations
+)
+
+# Print the results
+print(smallintestine_pairwise_results)
+
+```
+#run stats on beta diversity in Cecum
+```{r}
+# Subset phyloseq object to only have the data from Cecum
+btphylo_atsacrifice_pruned_transformed_cecum <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                              Biogeography %in% "Cecum")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for Cecum
+distance_bray_cecum = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_cecum, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for Cecum
+cecum_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_cecum, 
+                                     method = "PCoA", 
+                                     distance = distance_bray_cecum)
+
+# Create PCoA plot for Cecum
+PCoA_plot_cecum <- plot_ordination(btphylo_atsacrifice_pruned_transformed_cecum, cecum_ordinate_PCoA_bray, color = "Treatment") +
+  theme_bw() +
+  stat_ellipse() # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_cecum +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_cecum_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_cecum))
+ord_cecum_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_cecum_df$SeqCoastOrder, ord_cecum_df$Cage, ord_cecum_df$Mouse, drop = TRUE)
+ord_cecum_df$SeqCoastOrder_Cage <- interaction(ord_cecum_df$SeqCoastOrder, ord_cecum_df$Cage, drop = TRUE)
+
+# Run PERMANOVA using adonis2 for Cecum
+cecum_perm_results <- adonis2(distance_bray_cecum ~ Treatment + Sex + Treatment*Sex+Microniche+SeqCoastOrder_Cage+SeqCoastOrder_Cage_Mouse, 
+                              data = ord_cecum_df,
+                              method="bray",
+                              permutations = 999,
+                              by="terms")
+ 
+
+cecum_perm_results
+
+# Run pairwise Adonis for Cecum
+cecum_pairwise_results <- pairwise.adonis(
+  x = distance_bray_cecum,                  # Bray-Curtis distance matrix
+  factors = ord_cecum_df$Treatment,         # The grouping factor (Treatment)
+  sim.function = "vegdist",                  # Use vegan distance function
+  sim.method = "bray",                      # Bray-Curtis method
+  p.adjust.m = "bonferroni",                # Adjust p-values using Bonferroni correction
+  perm = 999                                # Number of permutations
+)
+
+# Print the results of pairwise Adonis for Cecum
+print(cecum_pairwise_results)
+
+
+
+```
+
+#now run stats for beta diversity in proximal colon
+```{r}
+# Subset phyloseq object to only have the data from Proximal Colon
+btphylo_atsacrifice_pruned_transformed_proximalcolon <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                                       Biogeography %in% "ProximalColon")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for Proximal Colon
+distance_bray_proximalcolon = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_proximalcolon, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for Proximal Colon
+proximalcolon_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_proximalcolon, 
+                                            method = "PCoA", 
+                                            distance = distance_bray_proximalcolon)
+
+# Create PCoA plot for Proximal Colon
+PCoA_plot_proximalcolon <- plot_ordination(btphylo_atsacrifice_pruned_transformed_proximalcolon, proximalcolon_ordinate_PCoA_bray, color = "Treatment") +
+  theme_bw() +
+  stat_ellipse() # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_proximalcolon +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_proximalcolon_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_proximalcolon))
+ord_proximalcolon_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_proximalcolon_df$SeqCoastOrder, ord_proximalcolon_df$Cage, ord_proximalcolon_df$Mouse, drop = TRUE)
+ord_proximalcolon_df$SeqCoastOrder_Cage <- interaction(ord_proximalcolon_df$SeqCoastOrder, ord_proximalcolon_df$Cage, drop = TRUE)
+
+
+# Run PERMANOVA using adonis2 for Proximal Colon
+proximalcolon_perm_results <- adonis2(distance_bray_proximalcolon ~ Treatment + Sex + Treatment*Sex+Microniche+SeqCoastOrder_Cage+SeqCoastOrder_Cage_Mouse, 
+                                      data = ord_proximalcolon_df, 
+                                      permutations = 999,
+                                      by="terms")
+ 
+
+proximalcolon_perm_results
+
+# Run pairwise Adonis for Proximal Colon
+proximalcolon_pairwise_results <- pairwise.adonis(
+  x = distance_bray_proximalcolon,                  # Bray-Curtis distance matrix
+  factors = ord_proximalcolon_df$Treatment,         # The grouping factor (Treatment)
+  sim.function = "vegdist",                         # Use vegan distance function
+  sim.method = "bray",                              # Bray-Curtis method
+  p.adjust.m = "bonferroni",                        # Adjust p-values using Bonferroni correction
+  perm = 999                                        # Number of permutations
+)
+
+# Print the results of pairwise Adonis for Proximal Colon
+print(proximalcolon_pairwise_results)
+
+
+
+```
+#Now stats for beta diversity in distal colon
+```{r}
+# Subset phyloseq object to only have the data from Distal Colon
+btphylo_atsacrifice_pruned_transformed_distalcolon <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                                       Biogeography %in% "DistalColon")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for Distal Colon
+distance_bray_distalcolon = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_distalcolon, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for Distal Colon
+distalcolon_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_distalcolon, 
+                                           method = "PCoA", 
+                                           distance = distance_bray_distalcolon)
+
+# Create PCoA plot for Distal Colon
+PCoA_plot_distalcolon <- plot_ordination(btphylo_atsacrifice_pruned_transformed_distalcolon, distalcolon_ordinate_PCoA_bray, color = "Treatment") +
+  theme_bw() +
+  stat_ellipse() # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_distalcolon +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_distalcolon_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_distalcolon))
+ord_distalcolon_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_distalcolon_df$SeqCoastOrder, ord_distalcolon_df$Cage, ord_distalcolon_df$Mouse, drop = TRUE)
+ord_distalcolon_df$SeqCoastOrder_Cage <- interaction(ord_distalcolon_df$SeqCoastOrder, ord_distalcolon_df$Cage, drop = TRUE)
+
+
+# Run PERMANOVA using adonis2 for Distal Colon
+distalcolon_perm_results <- adonis2(distance_bray_distalcolon ~ Treatment + Sex + Treatment*Sex+Microniche+SeqCoastOrder_Cage+SeqCoastOrder_Cage_Mouse, 
+                                    data = ord_distalcolon_df, 
+                                    permutations = 999,
+                                      by="terms")
+ 
+
+distalcolon_perm_results
+
+# Run pairwise Adonis for Distal Colon
+distalcolon_pairwise_results <- pairwise.adonis(
+  x = distance_bray_distalcolon,                  # Bray-Curtis distance matrix
+  factors = ord_distalcolon_df$Treatment,         # The grouping factor (Treatment)
+  sim.function = "vegdist",                        # Use vegan distance function
+  sim.method = "bray",                             # Bray-Curtis method
+  p.adjust.m = "bonferroni",                       # Adjust p-values using Bonferroni correction
+  perm = 999                                       # Number of permutations
+)
+
+# Print the results of pairwise Adonis for Distal Colon
+print(distalcolon_pairwise_results)
+
+
+
+```
+#Mucusal Surface beta diversity pairwise adonis
+```{r}
+# Subset phyloseq object to only have the data from Mucosal Surface
+btphylo_atsacrifice_pruned_transformed_mucosal <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                                Microniche %in% "MucosalSurface")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for Mucosal Surface
+distance_bray_mucosal = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_mucosal, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for Mucosal Surface
+mucosal_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_mucosal, 
+                                       method = "PCoA", 
+                                       distance = distance_bray_mucosal)
+
+# Create PCoA plot for Mucosal Surface
+PCoA_plot_mucosal <- plot_ordination(btphylo_atsacrifice_pruned_transformed_mucosal, mucosal_ordinate_PCoA_bray, color = "Treatment") +
+  theme_bw() +
+  stat_ellipse() # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_mucosal +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_mucosal_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_mucosal))
+ord_mucosal_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_mucosal_df$SeqCoastOrder, ord_mucosal_df$Cage, ord_mucosal_df$Mouse, drop = TRUE)
+ord_mucosal_df$SeqCoastOrder_Cage <- interaction(ord_mucosal_df$SeqCoastOrder, ord_mucosal_df$Cage, drop = TRUE)
+
+
+
+# Run PERMANOVA using adonis2 for Mucosal Surface
+mucosal_perm_results <- adonis2(distance_bray_mucosal ~ Treatment + Sex + Biogeography + Treatment*Sex+SeqCoastOrder_Cage+SeqCoastOrder_Cage_Mouse,
+                                data = ord_mucosal_df, 
+                                permutations = 999,
+                                by="terms")
+
+# Print the results of PERMANOVA
+print(mucosal_perm_results)
+
+# Run pairwise Adonis for Mucosal Surface
+mucosal_pairwise_results <- pairwise.adonis(
+  x = distance_bray_mucosal,                        # Bray-Curtis distance matrix
+  factors = ord_mucosal_df$Treatment,               # The grouping factor (Treatment)
+  sim.function = "vegdist",                          # Use vegan distance function
+  sim.method = "bray",                               # Bray-Curtis method
+  p.adjust.m = "bonferroni",                         # Adjust p-values using Bonferroni correction
+  perm = 999                                         # Number of permutations
+)
+
+# Print the results of pairwise Adonis for Mucosal Surface
+print(mucosal_pairwise_results)
+
+
+
+
+```
+Luminal Contents beta diversity pairwise adonis
+```{r}
+
+# Subset phyloseq object to only have the data from Luminal Contents
+btphylo_atsacrifice_pruned_transformed_luminal <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                                Microniche %in% "LuminalContents")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for Luminal Contents
+distance_bray_luminal = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_luminal, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for Luminal Contents
+luminal_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_luminal, 
+                                       method = "PCoA", 
+                                       distance = distance_bray_luminal)
+
+# Create PCoA plot for Luminal Contents
+PCoA_plot_luminal <- plot_ordination(btphylo_atsacrifice_pruned_transformed_luminal, luminal_ordinate_PCoA_bray, color = "Treatment") +
+  theme_bw() +
+  stat_ellipse() # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_luminal +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_luminal_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_luminal))
+ord_luminal_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_luminal_df$SeqCoastOrder, ord_luminal_df$Cage, ord_luminal_df$Mouse, drop = TRUE)
+ord_luminal_df$SeqCoastOrder_Cage <- interaction(ord_luminal_df$SeqCoastOrder, ord_luminal_df$Cage, drop = TRUE)
+
+
+
+# Run PERMANOVA using adonis2 for Luminal Contents
+luminal_perm_results <- adonis2(distance_bray_luminal ~ Treatment + Sex + Biogeography + Treatment*Sex+SeqCoastOrder_Cage+SeqCoastOrder_Cage_Mouse, 
+                                data = ord_luminal_df, 
+                                permutations = 999,
+                                by="terms")
+
+# Print the results of PERMANOVA
+print(luminal_perm_results)
+
+# Run pairwise Adonis for Luminal Contents
+luminal_pairwise_results <- pairwise.adonis(
+  x = distance_bray_luminal,                        # Bray-Curtis distance matrix
+  factors = ord_luminal_df$Treatment,               # The grouping factor (Treatment)
+  sim.function = "vegdist",                          # Use vegan distance function
+  sim.method = "bray",                               # Bray-Curtis method
+  p.adjust.m = "bonferroni",                         # Adjust p-values using Bonferroni correction
+  perm = 999                                         # Number of permutations
+)
+
+# Print the results of pairwise Adonis for Luminal Contents
+print(luminal_pairwise_results)
+
+
+```
+
+Stool at sacrifice beta diversity pairwise adonis
+```{r}
+
+# Subset phyloseq object to only have the data from stool Contents
+btphylo_atsacrifice_pruned_transformed_stool <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                                Microniche %in% "stool")
+
+# Calculate Bray-Curtis dissimilarity distance matrix for stool Contents
+distance_bray_stool = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_stool, method = "bray")
+
+# Perform a principal coordinate analysis (PCoA) on the distance matrix for stool Contents
+stool_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_stool, 
+                                       method = "PCoA", 
+                                       distance = distance_bray_stool)
+
+# Create PCoA plot for stool Contents
+PCoA_plot_stool <- plot_ordination(btphylo_atsacrifice_pruned_transformed_stool, stool_ordinate_PCoA_bray, color = "Treatment", shape = "Sex") +
+  theme_bw() +
+  stat_ellipse(aes(group=Treatment)) # adds an ellipse to the scatter plot for confidence intervals
+PCoA_plot_stool +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))
+
+# Convert sample data to a dataframe
+ord_stool_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_stool))
+ord_stool_df$SeqCoastOrder_Cage_Mouse <- interaction(ord_stool_df$SeqCoastOrder, ord_stool_df$Cage, ord_stool_df$Mouse, drop = TRUE)
+ord_stool_df$SeqCoastOrder_Cage <- interaction(ord_stool_df$SeqCoastOrder, ord_stool_df$Cage, drop = TRUE)
+
+
+# Run PERMANOVA using adonis2 for stool Contents
+stool_perm_results <- adonis2(distance_bray_stool ~ Treatment + Sex+Treatment*Sex+SeqCoastOrder_Cage+Seq, 
+                              data = ord_stool_df, 
+                              permutations = 999,
+                                by="terms")
+
+
+# Print the results of PERMANOVA
+print(stool_perm_results)
+
+# Run pairwise Adonis for stool Contents
+stool_pairwise_results <- pairwise.adonis(
+  x = distance_bray_stool,                        # Bray-Curtis distance matrix
+  factors = ord_stool_df$Treatment,               # The grouping factor (Treatment)
+  sim.function = "vegdist",                          # Use vegan distance function
+  sim.method = "bray",                               # Bray-Curtis method
+  p.adjust.m = "bonferroni",                         # Adjust p-values using Bonferroni correction
+  perm = 999                                         # Number of permutations
+)
+
+# Print the results of pairwise Adonis for stool Contents
+print(stool_pairwise_results)
+
+
+```
+
+
+```{r}
+#######################Baseline########################
+#Subset phyloseq object to only have the data from Baseline
+btphylo_atsacrifice_pruned_transformed_baseline <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                               Treatment == c( "Baseline"))
+
+#Calculate Bray-Curtis dissimilarity distance matrix
+distance_bray_baseline = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_baseline, method = "bray")
+
+#Perform a principal coordinate analysis (PCoA) on the distance matrix
+baseline_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_baseline, method = "PCoA", distance = "distance_bray_baseline")
+
+PCoA_plot_baseline <- plot_ordination(btphylo_atsacrifice_pruned_transformed_baseline, baseline_ordinate_PCoA_bray, shape = "Sex", color = "Microniche")+
+  theme_bw()+
+  stat_ellipse()+ #adds an ellipse to a scatter plot to help visualize the distribution of points in the plot. The ellipse is drawn using a confidence interval, which can be specified using the level argument. By default, stat_ellipse() uses a 95% confidence interval.
+   scale_color_manual(values = pastel_colors)  # Apply pastel colors
+
+ord_Baseline_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_baseline))
+
+# Run PERMANOVA using adonis2
+Baseline_perm_results <- adonis2(distance_bray_baseline ~ Microniche + Sex, data = ord_Baseline_df, permutations = 999)
+
+Baseline_perm_results
+
+
+#######################PBS########################
+#Subset phyloseq object to only have the data from PBS
+btphylo_atsacrifice_pruned_transformed_PBS <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                               Treatment == c( "PBS"))
+
+#Calculate Bray-Curtis dissimilarity distance matrix
+distance_bray_PBS = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_PBS, method = "bray")
+
+#Perform a principal coordinate analysis (PCoA) on the distance matrix
+PBS_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_PBS, method = "PCoA", distance = "distance_bray_PBS")
+
+PCoA_plot_PBS <- plot_ordination(btphylo_atsacrifice_pruned_transformed_PBS, PBS_ordinate_PCoA_bray, shape = "Sex", color = "Microniche")+
+  theme_bw()+
+  stat_ellipse()+ #adds an ellipse to a scatter plot to help visualize the distribution of points in the plot. The ellipse is drawn using a confidence interval, which can be specified using the level argument. By default, stat_ellipse() uses a 95% confidence interval.
+   scale_color_manual(values = pastel_colors)  # Apply pastel colors
+
+ord_PBS_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_PBS))
+
+# Run PERMANOVA using adonis2
+PBS_perm_results <- adonis2(distance_bray_PBS ~ Microniche + Sex, data = ord_PBS_df, permutations = 999)
+
+PBS_perm_results
+
+#######################PBS########################
+#Subset phyloseq object to only have the data from Bacteroides
+btphylo_atsacrifice_pruned_transformed_Bacteroides <- subset_samples(btphylo_atsacrifice_pruned_transformed, 
+                                                               Treatment == c( "Bacteroides"))
+
+#Calculate Bray-Curtis dissimilarity distance matrix
+distance_bray_Bacteroides = phyloseq::distance(btphylo_atsacrifice_pruned_transformed_Bacteroides, method = "bray")
+
+#Perform a principal coordinate analysis (PCoA) on the distance matrix
+Bacteroides_ordinate_PCoA_bray = ordinate(btphylo_atsacrifice_pruned_transformed_Bacteroides, method = "PCoA", distance = "distance_bray_Bacteroides")
+
+PCoA_plot_Bacteroides <- plot_ordination(btphylo_atsacrifice_pruned_transformed_Bacteroides, Bacteroides_ordinate_PCoA_bray, shape = "Sex", color = "Microniche")+
+  theme_bw()+
+  stat_ellipse()+ #adds an ellipse to a scatter plot to help visualize the distribution of points in the plot. The ellipse is drawn using a confidence interval, which can be specified using the level argument. By default, stat_ellipse() uses a 95% confidence interval.
+   scale_color_manual(values = pastel_colors)  # Apply pastel colors
+
+ord_Bacteroides_df <- data.frame(sample_data(btphylo_atsacrifice_pruned_transformed_Bacteroides))
+
+# Run PERMANOVA using adonis2
+Bacteroides_perm_results <- adonis2(distance_bray_Bacteroides ~ Microniche + Sex, data = ord_Bacteroides_df, permutations = 999)
+
+Bacteroides_perm_results
+
+```
+
+
+```{r}
+# Access the taxonomy table
+tax_table <- as.data.frame(tax_table(btphylo_nosacrifice))
+
+# Extract the genera
+genera <- tax_table$Genus
+
+# Print unique genera
+unique_genera <- unique(genera)
+print(unique_genera)
+
+
+```
+
+
+#Plot relative abundance across gut
+```{r}
+
+#filter and Normalize the data for across the gut
+wh02 = genefilter_sample(btphylo_atsacrifice, filterfun_sample(function(x) x > 1), A=0.1*nsamples(btphylo_atsacrifice))
+
+
+btphylo_atsacrifice_pruned = prune_taxa(wh02, btphylo_atsacrifice)
+
+
+#Aggregate Data at the Genus Level: You'll need to aggregate your OTU table at the genus level.
+btphylo_atsacrifice_pruned_genus <- tax_glom(btphylo_atsacrifice_pruned, "Genus")
+
+#Transform relative abundance
+btphylo_atsacrifice_pruned_genus_norm100 <- transform_sample_counts(btphylo_atsacrifice_pruned_genus, function(x) x / sum(x) *100)
+
+btphylo_atsacrifice_pruned_genus_norm100_relab_escherichia <- subset_taxa(btphylo_atsacrifice_pruned_genus_norm100, Genus == "Escherichia-Shigella")
+
+bt_genus_acrossgut_relab_escherichia_df <- psmelt(btphylo_atsacrifice_pruned_genus_norm100_relab_escherichia)
+
+bt_genus_acrossgut_relab_escherichia_lumen_df <- subset(bt_genus_acrossgut_relab_escherichia_df, Microniche == "LuminalContents")
+bt_genus_acrossgut_relab_escherichia_mucosa_df <- subset(bt_genus_acrossgut_relab_escherichia_df, Microniche == "MucosalSurface")
+
+
+escherichia_lumen_16s_plot_smooth_connected_points <- ggplot(bt_genus_acrossgut_relab_escherichia_lumen_df, aes(x = Biogeography, y = Abundance, color = Treatment, shape = Sex)) +
+  geom_point() +
+  geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  labs(y = "Relative Abundance of Escherichia (%)", x = "Experiment Day", color = "Treatment Group")
+
+escherichia_lumen_16s_plot_smooth_connected_points
+
+
+ggsave("Ecoli_acrossgut_lumen.pdf", plot = escherichia_lumen_16s_plot_smooth_connected_points, device = "pdf", width = 6, height = 3)
+
+escherichia_mucosa_16s_plot_smooth_connected_points <- ggplot(bt_genus_acrossgut_relab_escherichia_mucosa_df, aes(x = Biogeography, y = Abundance, color = Treatment, shape = Sex)) +
+    geom_point(size = 3) +  # Set size of the points
+   geom_line(aes(group = interaction(Cage,Mouse_.)), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), position = position_dodge(width = 0.5), width = 0.5, fatten = 3) +  # Add median crossbars, position_dodge to separate them
+    scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Consistent color scheme
+    theme_bw() +
+    labs(title = "Relative Abundance of Escherichia Across the Gut on the mucosa",
+         x = "Biogeography",
+         y = "Relative Abundance of Escherichia (%)")
+
+escherichia_mucosa_16s_plot_smooth_connected_points
+
+ggsave("Ecoli_acrossgut_mucoosa.pdf", plot = escherichia_mucosa_16s_plot_smooth_connected_points, device = "pdf", width = 6, height = 3)
+
+
+```
+
+#Plot relative abundance across the gut
+```{r}
+
+btphylo_atsacrifice
+
+#filter and Normalize the data for across the gut
+wh02 = genefilter_sample(btphylo_atsacrifice, filterfun_sample(function(x) x > 1), A=0.1*nsamples(btphylo_atsacrifice))
+
+
+btphylo_atsacrifice_pruned = prune_taxa(wh02, btphylo_atsacrifice)
+
+
+#Aggregate Data at the Genus Level: You'll need to aggregate your OTU table at the genus level.
+btphylo_atsacrifice_pruned_genus <- tax_glom(btphylo_atsacrifice_pruned, "Genus")
+
+#Transform relative abundance
+btphylo_atsacrifice_pruned_genus_relab <- transform_sample_counts(btphylo_atsacrifice_pruned_genus, function(x) x / sum(x) *100)
+
+#Extract and Prepare Data for Plotting:
+
+btphylo_atsacrifice_pruned_genus_relab_df <- psmelt(btphylo_atsacrifice_pruned_genus_relab)
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides <- btphylo_atsacrifice_pruned_genus_relab_df %>% filter(Genus == "Bacteroides")
+
+# Assuming YourDataFrame has a column named "Microniche"
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen <- btphylo_atsacrifice_pruned_genus_relab_df_bacteroides %>%
+    filter(Microniche == "LuminalContents")
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface <- btphylo_atsacrifice_pruned_genus_relab_df_bacteroides %>%
+    filter(Microniche == "MucosalSurface")
+
+##Plot across the gut
+
+Bt_16s_plot_acrossgut_biogeography_lumen <- ggplot(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen, aes(x = Biogeography, y = Abundance, color = Treatment, shape = Sex)) +
+    geom_point(size = 3) +  # Set size of the points
+   geom_line(aes(group = interaction(Cage,Mouse)), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), position = position_dodge(width = 0.5), width = 0.5, fatten = 3) +  # Add median crossbars, position_dodge to separate them
+    scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Consistent color scheme
+    theme_bw() +
+    labs(x = "Biogeography",
+         y = "Relative Abundance of Bacteroides (%)")+
+  coord_cartesian(ylim = c(0, 70))  # Zoom into y-axis range
+
+
+Bt_16s_plot_acrossgut_biogeography_lumen
+
+ggsave("Bt_16s_plot_acrossgut_biogeography_lumen.pdf", plot = Bt_16s_plot_acrossgut_biogeography_lumen, device = "pdf", width = 6, height = 3)
+
+
+#stats for bacteroides across gut in the lumen
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen$MouseID <- paste(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen$Cage, btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen$Mouse_., sep = "_")
+
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen$Treatment <- factor(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen$Treatment, levels=c("PBS", "Bacteroides", "Baseline"))
+
+bacteroides_relabundance_acrossgut_lumen_model <- lmer(Abundance ~ Treatment + Biogeography + Sex + Treatment*Biogeography+(1|MouseID), data = btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_lumen)
+
+summary(bacteroides_relabundance_acrossgut_lumen_model)
+
+
+```
+
+#Plot across Microniches
+```{r}
+
+
+Bt_16s_plot_acrossgut_biogeography_mucosa <- ggplot(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface, aes(x = Biogeography, y = Abundance, color = Treatment, shape = Sex)) +
+    geom_point(size = 3) +  # Set size of the points
+   geom_line(aes(group = interaction(Cage,Mouse_.)), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), position = position_dodge(width = 0.5), width = 0.5, fatten = 3) +  # Add median crossbars, position_dodge to separate them
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +  # Consistent color scheme
+    theme_bw() +
+    labs(x = "Biogeography",
+         y = "Relative Abundance of Bacteroides (%)")+
+    coord_cartesian(ylim = c(0, 70))  # Zoom into y-axis range
+
+
+Bt_16s_plot_acrossgut_biogeography_mucosa
+
+ggsave("Bt_16s_plot_acrossgut_biogeography_mucosa.pdf", plot = Bt_16s_plot_acrossgut_biogeography_mucosa, device = "pdf", width = 6, height = 3)
+
+#stats for bacteroides across gut in the lumen
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface$MouseID <- paste(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface$Cage, btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface$Mouse_., sep = "_")
+
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface$Treatment <- factor(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface$Treatment, levels=c("Baseline", "PBS", "Bacteroides"))
+
+
+btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface_model <- lmer(Abundance ~ Treatment + Biogeography + Sex + Treatment*Biogeography + (1|MouseID), data = btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface)
+
+summary(btphylo_atsacrifice_pruned_genus_relab_df_bacteroides_mucosalsurface_model)
+
+
+
+
+
+```
+
+
+#Plot beta diversity between sexes
+```{r}
+# Compute ordination (PCoA) using a distance matrix (e.g., Morisita Horn)
+
+btphylo_atsacrifice
+
+btphylo_atsacrifice_normalized <- transform_sample_counts(btphylo_atsacrifice, function(x) x / sum(x) *100)
+
+btphylo_atsacrifice_normalized_horn <- phyloseq::distance(btphylo_atsacrifice_normalized, method = "horn")
+
+btphylo_atsacrifice_normalized_ord_pcoa_horn <- ordinate(btphylo_atsacrifice_normalized, method = "PCoA", distance = "horn")
+
+# Plot the beta diversity between sexes, all together
+betahorn_diversity_acrossgut_lumen_plot1 <- plot_ordination(btphylo_atsacrifice_normalized, btphylo_atsacrifice_normalized_ord_pcoa_horn, color = "Sex", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  scale_color_manual(values = c("F" = "lightgreen", "M" = "lightblue"))+
+  stat_ellipse(aes(group = Sex), linetype = 1)
+
+
+betahorn_diversity_acrossgut_lumen_plot1
+
+ggsave("betahorn_diversity_betwensexes_lumen_plot.pdf", plot = betahorn_diversity_acrossgut_lumen_plot1, device = "pdf", width = 6, height = 4)
+
+# Plot the beta diversity between sexes, for each treatment
+betahorn_diversity_acrossgut_lumen_plot2 <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_horn, color = "Sex", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  facet_wrap(~Treatment)+
+  scale_color_manual(values = c("F" = "lightgreen", "M" = "lightblue"))+
+  stat_ellipse(aes(group = Sex), linetype = 1)
+
+
+betahorn_diversity_acrossgut_lumen_plot2
+
+ggsave("betahorn_diversity_betwensexes_lumen_plot2.pdf", plot = betahorn_diversity_acrossgut_lumen_plot2, device = "pdf", width = 6, height = 4)
+
+# Compute ordination (PCoA) using a distance matrix (e.g., Bray-Curtis)
+ord_pcoa_bray <- ordinate(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, method = "PCoA", distance = "bray")
+
+# Plot the beta diversity between sexes, all together
+betabray_diversity_acrossgut_lumen_plot3 <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_bray, color = "Sex", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  scale_color_manual(values = c("F" = "lightgreen", "M" = "lightblue"))+
+  stat_ellipse(aes(group = Sex), linetype = 1)
+
+
+betabray_diversity_acrossgut_lumen_plot3
+
+ggsave("betabray_diversity_betwensexes_lumen_plot3.pdf", plot = betabray_diversity_acrossgut_lumen_plot3, device = "pdf", width = 6, height = 4)
+
+# Plot the beta diversity between sexes, for each treatment
+betabray_diversity_acrossgut_lumen_plot4 <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_bray, color = "Sex", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  facet_wrap(~Treatment)+
+  scale_color_manual(values = c("F" = "lightgreen", "M" = "lightblue"))+
+  stat_ellipse(aes(group = Sex), linetype = 1)
+
+
+betahorn_diversity_acrossgut_lumen_plot4
+
+ggsave("betabray_diversity_betwensexes_lumen_plot4.pdf", plot = betabray_diversity_acrossgut_lumen_plot4, device = "pdf", width = 6, height = 4)
+```
+
+```{r}
+
+# Plot the beta diversity with regions all togther but treatments separated
+betahorn_diversity_acrossgut_lumen_plot2 <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_horn, color = "Biogeography", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  facet_wrap(~Treatment, nrow = 1, ncol = 3) +  # Facet by Biogeography with specified layout
+  scale_color_manual(values = c("SmallIntestine" = "darkblue", "Cecum" = "royalblue", "ProximalColon" = "lightblue", "DistalColon" = "#D1E8EE"))+
+  stat_ellipse(aes(group = Biogeography), linetype = 1)
+
+
+betahorn_diversity_acrossgut_lumen_plot2
+
+ggsave("betahorn_diversity_acrossgut_pertreatment_lumen_plot.pdf", plot = betahorn_diversity_acrossgut_lumen_plot2, device = "pdf", width = 8, height = 2)
+
+
+# Plot the beta diversity with biogeography faceted
+betahorn_diversity_acrossgut_lumen_plot <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_horn, color = "Treatment", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  facet_wrap(~Biogeography, nrow = 1, ncol = 4) +  # Facet by Biogeography with specified layout
+  theme_bw() +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  stat_ellipse(aes(group = Treatment), linetype = 1)
+
+
+betahorn_diversity_acrossgut_lumen_plot
+
+ggsave("betahorn_diversity_acrossgut_lumen_plot.pdf", plot = betahorn_diversity_acrossgut_lumen_plot, device = "pdf", width = 8, height = 2)
+
+
+
+# Compute ordination (PCoA) using a distance matrix (e.g., Morisita)
+
+ord_pcoa_bray <- ordinate(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, method = "PCoA", distance = "bray")
+
+# Plot the beta diversity
+betabray_diversity_acrossgut_lumen_plot <- plot_ordination(btEstablishmentWTmice_phyloseq_nobaselinemice_atsacrifice_lumen, ord_pcoa_bray, color = "Treatment", shape = "Sex") +
+  geom_point(size = 3) +  # Adjust size of points
+  theme_bw() +
+  facet_wrap(~Biogeography, nrow = 1, ncol = 4) +  # Facet by Biogeography with specified layout
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  stat_ellipse(aes(group = Treatment), linetype = 1)
+
+
+betabray_diversity_acrossgut_lumen_plot
+
+
+```
+
+#Plot beta diversity across the gut, coloring by treatment group
+
+```{r}
+desired_timepoints <- c("Sacrifice", "LPS", "Baseline_6")
+desired_treatments <- c("Baseline")
+
+phylo_LPSandSacrifice <- subset_samples(btEstablishmentWTmice_phyloseq, 
+                                        Timepoint %in% desired_timepoints & 
+                                        (Treatment %in% desired_treatments | Timepoint != "Baseline_6"))
+
+# Extract the sample data from the phyloseq object
+sample_data_df <- as(sample_data(phylo_LPSandSacrifice), "data.frame")
+
+sample_data_df <- sample_data_df %>% 
+  mutate(Biogeography = case_when(
+    is.na(Biogeography) ~ "Fecal",
+    TRUE ~ Biogeography  # Keep all other values as is
+  ))
+
+#Factor order of biogrography
+sample_data_df$Biogeography <- factor(sample_data_df$Biogeography, levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon", "Fecal"))
+
+
+# Update the sample data in the phyloseq object
+sample_data(phylo_LPSandSacrifice) <- sample_data_df
+
+#filter the data for beta diverity analysis
+
+
+#selecting taxa that are present in more than 1 count in at least 10% of the samples. This is a common way to filter out low-abundance taxa that might be less informative or represent sequencing noise
+wh03 = genefilter_sample(phylo_LPSandSacrifice, filterfun_sample(function(x) x > 1), A=0.1*nsamples(phylo_LPSandSacrifice))
+
+
+#removes samples that have zero total counts. 
+phylo_LPSandSacrifice_toprune <- prune_samples(sample_sums(phylo_LPSandSacrifice) > 0, phylo_LPSandSacrifice)
+
+#applying the filter criteria from step 1 to prune the taxa from the phylo_LPSandSacrifice_toprune object. This results in phylo_LPSandSacrifice_pruned, which contains only the taxa that meet your filtering criteria
+phylo_LPSandSacrifice_pruned = prune_taxa(wh03, phylo_LPSandSacrifice_toprune)
+
+
+
+
+#This is the ordination with the normalized data. You usually shouldn't calculate beta diversity distances on normalized data.
+phylo_LPSandSacrifice_pruned_ord_horn = ordinate(phylo_LPSandSacrifice_pruned, method="PCoA", distance = "horn")
+
+#PCoA is 35.3%
+
+
+phylo_LPSandSacrifice_beta_horn <- plot_ordination(phylo_LPSandSacrifice, phylo_LPSandSacrifice_pruned_ord_horn, color = "Biogeography", shape = "Sex") +
+  geom_point(size = 2) +  # Adjust size of points
+  theme_bw() +
+  facet_wrap(~Treatment, nrow = 1, ncol = 3) +  # Facet by Biogeography with specified layout
+  scale_color_manual(values = c("Fecal" = "darkgreen", "SmallIntestine" = "darkblue", "Cecum" = "royalblue", "ProximalColon" = "lightblue", "DistalColon" = "#D1E8EE"))+
+  stat_ellipse(aes(group = Biogeography), linetype = 1)
+
+phylo_LPSandSacrifice_beta_horn
+
+ggsave("phylo_LPSandSacrifice_beta_horn_acrosstreatment.pdf", width = 10, height = 3)
+
+
+phylo_LPSandSacrifice_no_fecal <- subset_samples(phylo_LPSandSacrifice, Biogeography != "Fecal")
+phylo_LPSandSacrifice_no_fecal_ord_horn <- ordinate(phylo_LPSandSacrifice_no_fecal, method = "PCoA", distance = "horn")
+
+phylo_LPSandSacrifice_acrossgut_beta_horn <- plot_ordination(phylo_LPSandSacrifice_no_fecal, phylo_LPSandSacrifice_no_fecal_ord_horn, color = "Treatment", shape = "Microniche") +
+  geom_jitter(size = 2) +  # Add jitter to points
+  theme_bw() +
+  facet_wrap(~Biogeography, nrow = 1, ncol = 4) +  # Facet by Biogeography with specified layout
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"))+
+  stat_ellipse(aes(group = Treatment), linetype = 1)
+
+phylo_LPSandSacrifice_acrossgut_beta_horn
+
+ggsave("phylo_LPSandSacrifice_beta_horn_acrossgut.pdf", width = 10, height = 3)
+
+
+```
+
+
+
+##### Running statistics forphylo_LPSandSacrifice_acrossgut_beta_horn
+```{r}
+
+
+# Assuming phylo_LPSandSacrifice_pruned is your phyloseq object
+biogeographies <- c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon")
+results <- list()
+pairwise_results <- list()
+
+
+for (biogeo in biogeographies) {
+  # Subset the phyloseq object
+  phy_subset <- subset_samples(phylo_LPSandSacrifice_pruned, Biogeography == biogeo)
+  
+  # Create a distance matrix
+  dist_matrix <- distance(phy_subset, method = "horn") # Replace 'bray' with your preferred distance method
+
+  # Convert sample data to a data frame and ensure the presence of Treatment and Sex columns
+  df_sample_data <- data.frame(sample_data(phy_subset))
+
+  # Check if 'Treatment' and 'Sex' columns exist in the data frame
+  if(!("Treatment" %in% colnames(df_sample_data)) || !("Sex" %in% colnames(df_sample_data))) {
+    stop("The required columns 'Treatment' and 'Sex' are not present in the sample data.")
+  }
+
+  # Run PERMANOVA using adonis2
+  perm_result <- adonis2(dist_matrix ~ Treatment + Sex + Microniche, data = df_sample_data, permutations = 999)
+  results[[biogeo]] <- perm_result
+  
+   # Perform pairwise Adonis
+  pairwise_result <- pairwise.adonis(dist_matrix, df_sample_data$Treatment)
+  pairwise_results[[biogeo]] <- pairwise_result
+}
+
+# View results
+results
+pairwise_results
+
+```
+
+#Run another permanova for across treatments
+```{r}
+
+desired_timepoints2 <- c("Sacrifice", "LPS")
+
+phylo_LPSandSacrifice2 <- subset_samples(btEstablishmentWTmice_phyloseq, 
+                                        Timepoint %in% desired_timepoints2)
+sample_data_df <- sample_data_df %>% 
+  mutate(Biogeography = case_when(
+    is.na(Biogeography) ~ "Fecal",
+    TRUE ~ Biogeography  # Keep all other values as is
+  ))
+
+#Factor order of biogrography
+sample_data_df$Biogeography <- factor(sample_data_df$Biogeography, levels = c("SmallIntestine", "Cecum", "ProximalColon", "DistalColon", "Fecal"))
+
+
+# Update the sample data in the phyloseq object
+sample_data(phylo_LPSandSacrifice2) <- sample_data_df
+
+#filter the data for beta diverity analysis
+
+
+#selecting taxa that are present in more than 1 count in at least 10% of the samples. This is a common way to filter out low-abundance taxa that might be less informative or represent sequencing noise
+wh04 = genefilter_sample(phylo_LPSandSacrifice2, filterfun_sample(function(x) x > 1), A=0.1*nsamples(phylo_LPSandSacrifice))
+
+
+#removes samples that have zero total counts. 
+phylo_phylo_LPSandSacrifice2_toprune <- prune_samples(sample_sums(phylo_LPSandSacrifice2) > 0, phylo_LPSandSacrifice2)
+
+#applying the filter criteria from step 1 to prune the taxa from the phylo_LPSandSacrifice_toprune object. This results in phylo_LPSandSacrifice_pruned, which contains only the taxa that meet your filtering criteria
+phylo_phylo_LPSandSacrifice2_pruned = prune_taxa(wh04, phylo_phylo_LPSandSacrifice2_toprune)
+
+library(phyloseq)
+library(vegan)  # For adonis2
+# Assuming the pairwise.adonis function is correctly loaded from its source
+
+Treatments <- c("Baseline", "PBS", "Bacteroides")
+results2 <- list()
+pairwise_results <- list()
+
+for (Treat in Treatments) {
+  # Subset the phyloseq object based on the Treatment
+  phy_subset <- subset_samples(phylo_phylo_LPSandSacrifice2_pruned, Treatment == Treat)
+
+  # Ensure there are enough samples to analyze
+  if (nsamples(phy_subset) > 1) {
+    # Convert sample data to a data frame
+    df_sample_data <- as.data.frame(sample_data(phy_subset))
+
+    # Check if the necessary columns are present
+    if (!all(c("Biogeography", "Sex", "Microniche") %in% colnames(df_sample_data))) {
+      stop("One or more required columns (Biogeography, Sex, Microniche) are missing in the sample data.")
+    }
+
+    # Create a distance matrix
+    dist_matrix <- phyloseq::distance(phy_subset, method = "horn")
+
+    # Run PERMANOVA using adonis2
+    perm_result <- adonis2(dist_matrix ~ Biogeography + Sex + Microniche, 
+                           data = df_sample_data, permutations = 999)
+    results[[Treat]] <- perm_result
+
+    # Perform pairwise Adonis - modify as per your actual requirements
+    pairwise_result2 <- pairwise.adonis(dist_matrix, df_sample_data$Biogeography)
+    pairwise_results2[[Treat]] <- pairwise_result2
+  } else {
+    cat("Not enough samples found for Treatment:", Treat, "\n")
+  }
+}
+
+# View results
+print(results2)
+print(pairwise_results)
+
+
+
+```
+
+
+
+#Run an analysis that identifies what microbes are most different between each region
+```{r}
+
+library(phyloseq)
+
+ (!requireNamespace("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+  
+BiocManager::install("ANCOMBC", force = TRUE)
+
+library(ANCOMBC)
+library(dplyr)
+library(nloptr)
+
+#loading example data so that i can see what this looks like
+data(dietswap)
+
+#Data from samples collected across gut at sacrifice
+btphylo_atsacrifice <- subset_samples(btEstablishmentWTmice_phyloseq, Timepoint == "Sacrifice")
+
+#wh0_btphylo_atsacrifice = genefilter_sample(btphylo_atsacrifice, filterfun_sample(function(x) x > 1), A=0.1*nsamples(btphylo_atsacrifice))
+
+#btphylo_atsacrifice_pruned = prune_taxa(wh0_btphylo_atsacrifice, btphylo_atsacrifice)
+
+
+btphylo_atsacrifice_relab100<- transform_sample_counts(btphylo_atsacrifice, function(x) x / sum(x) *100)
+
+# Ensure that the taxonomy table has a 'Genus' level
+if ("Genus" %in% rank_names(btphylo_atsacrifice_relab100)) {
+    # Aggregate by Genus
+    btphylo_atsacrifice_relab100_genus <- tax_glom(btphylo_atsacrifice_relab100, "Genus")
+} else {
+    stop("The taxonomy table does not contain a 'Genus' level. Please check your data.")
+}
+
+# Extract the data from the phyloseq object
+ASV_data <- as(otu_table(btphylo_atsacrifice_relab100_genus), "matrix")
+tax_table <- as.data.frame(tax_table(btphylo_atsacrifice_relab100_genus))
+sample_data <- sample_data(btphylo_atsacrifice_relab100_genus)
+
+# Convert data to a dataframe for ANCOMBC
+ASV_data_df <- data.frame(t(ASV_data))
+
+# Check if all ASVs in df_data are present in tax_table
+if (!all(colnames(ASV_data_df) %in% rownames(tax_table))) {
+    stop("Some ASVs in df_data are not present in tax_table.")
+}
+
+genus_names <- tax_table[match(colnames(ASV_data_df), rownames(tax_table)), "Genus"]
+
+# Replace missing or NA genus names with a placeholder or unique identifier
+genus_names[is.na(genus_names)] <- paste("NA", seq(along=genus_names[is.na(genus_names)]), sep="_")
+
+colnames(ASV_data_df) <- genus_names
+
+
+
+sample_data$SampleID <- rownames(sample_data)
+grp.names <- as.vector(sample_data$Treatment)
+
+df_metadata <- data.frame(sample_data)
+
+#feature.table: Data frame or matrix representing observed OTU table with OTUs (or taxa) in rows and samples in columns.
+df_data
+
+#meta.data: Data frame or matrix of all variables and covariates of interest.
+sample_data
+
+#sample.var: Character. The name of column storing sample IDs.
+SampleID
+
+#group.var: Character. The name of the main variable of interest. ANCOM-BC v1.0 only supports discrete group.var and aims to compare the change of absolute abundance across different levels of group.var.
+grp.names
+
+
+#zero.cut: Numerical fraction between 0 and 1. Taxa with proportion of zeroes greater than zero.cut are not included in the analysis.
+0.01
+
+#lib.cut: Numeric. Samples with library size less than lib.cut are not included in the analysis.
+
+
+#neg.lb: Logical. TRUE indicates a taxon would be classified as a structural zero in the corresponding experimental group using its asymptotic lower bound.
+
+ANCOM_BC(feature.table, 
+grp.name, 
+grp.ind, 
+struc.zero, 
+adj.method, tol.EM, max.iterNum, perNum, alpha)
+
+
+
+
+
+
+#Run ANCOM-BC
+ancombc(
+  data = NULL,
+  assay.type = NULL,
+  assay_name = "counts",
+  rank = NULL,
+  tax_level = NULL,
+  phyloseq = btphylo_atsacrifice_relab100_genus,
+  formula,
+  p_adj_method = "holm",
+  prv_cut = 0.1,
+  lib_cut = 0,
+  group = NULL,
+  struc_zero = FALSE,
+  neg_lb = FALSE,
+  tol = 1e-05,
+  max_iter = 100,
+  conserve = FALSE,
+  alpha = 0.05,
+  global = FALSE,
+  n_cl = 1,
+  verbose = FALSE
+)
+```
+
+
+#Using biomehorizon to look at differential abundance across time
+
+
+```{r}
+
+## Install devtools
+install.packages("devtools")
+
+
+devtools::install_github("blekhmanlab/biomehorizon")
+library(biomehorizon)  
+otusample_diet <- otusample_diet
+
+otusample_diet %>%
+	arrange(desc(MCT.f.0002)) %>%
+	select(1:7) %>%
+	head()
+
+head(metadatasample_diet)
+
+metadatasample_diet <- metadatasample_diet
+
+length(metadatasample_diet$subject[metadatasample_diet$subject == "MCTs01"])
+
+paramList <- prepanel(otudata = otusample_diet, metadata = metadatasample_diet, subj = "MCTs01")
+
+
+library(dplyr)
+
+## Retrieve samples from MCTs01
+otusample_subj1 <- otusample_diet %>%
+	select(taxon_id, as.character((metadatasample_diet %>% filter(subject=="MCTs01"))$sample))
+	
+
+otusample_subj1 %>%
+	filter(taxon_id == "taxon 2") %>%
+	select(-taxon_id) %>%
+	as.numeric()
+
+paramList <- prepanel(otudata = otusample_diet, metadata = metadatasample_diet, subj = "MCTs01",
+thresh_prevalence = 90, thresh_abundance = 1.5)
+
+
+paramList <- prepanel(otudata = otusample_diet, metadata = metadatasample_diet, subj = "MCTs01",
+otulist = c("taxon 1", "taxon 2", "taxon 10", "taxon 14"))
+
+## Basic plot using default filtering thresholds
+paramList <- prepanel(otudata = otusample_diet, metadata = metadatasample_diet, subj = "MCTs01")
+
+horizonplot(paramList)
+
+```
+
+
+

@@ -1,0 +1,1613 @@
+---
+title: "08062024_LuminexAnalysis"
+author: "Rebecca Valls"
+date: "2024-08-06"
+output: html_document
+---
+'
+#Install libraries
+```{r}
+# Install and load necessary packages if not already installed
+# install.packages("dplyr")
+# install.packages("readr")
+# install.packages("broom")
+# install.packages("purrr")
+# install.packages("hrbrthemes")
+# install.packages("geomtextpath")
+# install.packages("lmerTest")
+# install.packages("ggplot2")
+# install.packages("tidyverse")
+
+library(readr)
+library(dplyr)
+library(broom)
+library(purrr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(hrbrthemes)
+library(geomtextpath)
+library(dplyr)
+
+
+```
+
+#Load data
+```{r}
+BacteroidesEstablishment_SerumandLungs_2nonCFand2CF_MasterLuminex <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/3_DataAnalysis/Luminex_Aug2024/BacteroidesEstablishment_SerumandLungs__2nonCFand2CF_MasterLuminex.csv")
+
+luminex_df <- as.data.frame(BacteroidesEstablishment_SerumandLungs_2nonCFand2CF_MasterLuminex)
+
+# Factor the "Treatment" column
+luminex_df <- luminex_df %>%
+  mutate(Treatment = factor(Treatment, levels = c("Baseline", "PBS", "Bacteroides")))
+
+# Factor the "Sex" column
+luminex_df <- luminex_df %>%
+  mutate(Sex = factor(Sex, levels = c("M", "F")))
+
+
+luminex_df$Cage <- as.factor(luminex_df$Cage)
+
+
+
+
+#Subset data into each experiment
+#nonCF Exp1
+nonCF_Exp1_luminex_df<- luminex_df %>%
+  filter(Experiment == "nonCF_Exp1")
+
+#nonCF Exp2
+nonCF_Exp2_luminex_df<- luminex_df %>%
+  filter(Experiment == "nonCF_Exp2")
+
+
+#CF Exp1
+CF_Exp1_luminex_df<- luminex_df %>%
+  filter(Experiment %in% c("CF_Baseline", "CF_Exp1"))
+
+#CF Exp2
+CF_Exp2_luminex_df<- luminex_df %>%
+  filter(Experiment == "CF_Exp2")
+
+
+```
+
+
+#Extract serum and lungs KC and plot for nonCF Experiment 1
+```{r}
+nonCF_Exp1_serum_KC_luminex_df <- nonCF_Exp1_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+nonCF_Exp1_serum_KC_dotplot <- ggplot(nonCF_Exp1_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp1_serum_KC_dotplot
+
+ggsave("nonCF_Exp1_serum_KC_dotplot.pdf", plot = nonCF_Exp1_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+nonCF_Exp1_lungs_KC_luminex_df <- nonCF_Exp1_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+nonCF_Exp1_lungs_KC_dotplot <- ggplot(nonCF_Exp1_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp1_lungs_KC_dotplot
+
+ggsave("nonCF_Exp1_lungs_KC_dotplot.pdf", plot = nonCF_Exp1_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+
+
+```
+
+#Extract serum and lungs KC and plot for Experiment 2
+```{r}
+nonCF_Exp2_serum_KC_luminex_df <- nonCF_Exp2_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+nonCF_Exp2_serum_KC_dotplot <- ggplot(nonCF_Exp2_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp2_serum_KC_dotplot
+
+ggsave("nonCF_Exp2_serum_KC_dotplot.pdf", plot = nonCF_Exp2_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+nonCF_Exp2_lungs_KC_luminex_df <- nonCF_Exp2_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+nonCF_Exp2_lungs_KC_dotplot <- ggplot(nonCF_Exp2_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp2_lungs_KC_dotplot
+ggsave("nonCF_Exp2_lungs_KC_dotplot.pdf", plot = nonCF_Exp2_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+```
+#Extract serum and lungs KC and plot for CF Experiment 1
+```{r}
+
+CF_Exp1_serum_KC_luminex_df <- CF_Exp1_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+CF_Exp1_serum_KC_dotplot <- ggplot(CF_Exp1_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_Exp1_serum_KC_dotplot
+
+ggsave("CF_Exp1_serum_KC_dotplot.pdf", plot = CF_Exp1_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+CF_Exp1_Lungs_KC_luminex_df <- CF_Exp1_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+CF_Exp1_lungs_KC_dotplot <- ggplot(CF_Exp1_Lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_Exp1_lungs_KC_dotplot
+
+ggsave("CF_Exp1_lungs_KC_dotplot.pdf", plot = CF_Exp1_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+
+```
+
+#Extract serum and lungs KC and plot for CF Experiment 2
+```{r}
+
+CF_Exp2_serum_KC_luminex_df <- CF_Exp2_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+CF_Exp2_serum_KC_dotplot <- ggplot(CF_Exp2_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_Exp2_serum_KC_dotplot
+ggsave("CF_Exp2_serum_KC_dotplot.pdf", plot = CF_Exp2_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+CF_Exp2_Lungs_KC_luminex_df <- CF_Exp2_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+CF_Exp2_lungs_KC_dotplot <- ggplot(CF_Exp2_Lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_Exp2_lungs_KC_dotplot
+ggsave("CF_Exp2_lungs_KC_dotplot.pdf", plot = CF_Exp2_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+```
+
+
+
+
+
+
+#Plot KC in serum and lungs from both nonCF experiments
+```{r}
+nonCF_serum_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Serum",
+         Cytokine == "KC")
+
+nonCF_serum_KC_dotplot <- ggplot(nonCF_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 5) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_serum_KC_dotplot
+ggsave("nonCF_serum_KC_dotplot.pdf", plot = nonCF_serum_KC_dotplot, device = "pdf", width = 6, height = 3)
+
+nonCF_lungs_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Lungs",
+         Cytokine == "KC")
+
+nonCF_lungs_KC_dotplot <- ggplot(nonCF_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 5) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+
+nonCF_lungs_KC_dotplot
+
+ggsave("nonCF_lungs_KC_dotplot.pdf", plot = nonCF_lungs_KC_dotplot, device = "pdf", width = 6, height = 3)
+
+```
+
+
+
+
+#Plot KC in serum and lungs from both experiments
+```{r}
+CF_serum_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "CftrF508del",
+         SampleType == "Serum",
+         Cytokine == "KC")
+
+CF_serum_KC_dotplot <- ggplot(CF_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_serum_KC_dotplot
+ggsave("CF_serum_KC_dotplot.pdf", plot = CF_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+CF_lungs_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "CftrF508del",
+         SampleType == "Lungs",
+         Cytokine == "KC")
+
+CF_lungs_KC_dotplot <- ggplot(CF_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_lungs_KC_dotplot
+ggsave("CF_lungs_KC_dotplot.pdf", plot = CF_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+```
+
+
+
+Run stats for just KC of nonCF Exp1 and 2
+```{r}
+# Factor the "Sex" column
+nonCF_serum_KC_luminex_df <- nonCF_serum_KC_luminex_df %>%
+  mutate(Sex = factor(Sex, levels = c("M", "F")))
+
+# Factor the "Treatment" column 
+nonCF_serum_KC_luminex_df <- nonCF_serum_KC_luminex_df %>%
+  mutate(Treatment = factor(Treatment, levels = c("Baseline", "PBS", "Bacteroides")))
+
+#serum
+
+#Subset just PBS and Bacteroides treatment groups to run stats (change between the two to set Baseline or PBS as the reference)
+nonCF_serum_KC_luminex_df_PBSvsBt <- nonCF_serum_KC_luminex_df[nonCF_serum_KC_luminex_df$Treatment %in% c("Baseline", "PBS"), ]
+
+#check if data is normal
+nonCF_serum_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(nonCF_serum_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(nonCF_serum_KC_luminex_df_PBSvsBt_normalcy_result) #data is not normal
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC 
+
+
+nonCF_serum_KC_luminex_df_PBSvsBt_model2 <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_serum_KC_luminex_df_PBSvsBt)
+summary(nonCF_serum_KC_luminex_df_PBSvsBt_model2) #this is the one that is used to discuss paper
+
+
+#lungs
+#Subset just PBS and Bacteroides treatment groups to run stats
+nonCF_lungs_KC_luminex_df_PBSvsBt <- nonCF_lungs_KC_luminex_df[nonCF_lungs_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+# Factor the "Sex" column
+nonCF_lungs_KC_luminex_df_PBSvsBt <- nonCF_lungs_KC_luminex_df_PBSvsBt %>%
+  mutate(Sex = factor(Sex, levels = c("F", "M")))
+
+#check if data is normal
+nonCF_lungs_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(nonCF_lungs_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(nonCF_lungs_KC_luminex_df_PBSvsBt_normalcy_result) #data is not normal
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC in lungs
+nonCF_lungs_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_lungs_KC_luminex_df_PBSvsBt)
+summary(nonCF_lungs_KC_luminex_df_PBSvsBt_model)
+
+
+
+```
+
+Run stats for just KC of CF Exp1 and 2
+```{r}
+# serum
+#Subset just PBS and Bacteroides treatment groups to run stats
+CF_serum_KC_luminex_df_PBSvsBt <- CF_serum_KC_luminex_df[CF_serum_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+#check if data is normal
+CF_serum_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(CF_serum_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(CF_serum_KC_luminex_df_PBSvsBt_normalcy_result) #data is normal, but we have only 20 entries so we will still normalize it
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC / setting Cage as random affect
+CF_serum_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = CF_serum_KC_luminex_df_PBSvsBt)
+summary(CF_serum_KC_luminex_df_PBSvsBt_model)
+
+CF_serum_KC_luminex_df_PBSvsBt_model2 <- lmer(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + (1|Cage), data = CF_serum_KC_luminex_df_PBSvsBt)
+summary(CF_serum_KC_luminex_df_PBSvsBt_model)
+
+#lungs
+
+#Subset just PBS and Bacteroides treatment groups to run stats
+CF_lungs_KC_luminex_df_PBSvsBt <- CF_lungs_KC_luminex_df[CF_lungs_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+#check if data is normal
+CF_lungs_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(CF_lungs_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(CF_lungs_KC_luminex_df_PBSvsBt_normalcy_result) #data is normal, but we have only 20 entries so we will still normalize it
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC / setting Cage as random affect
+CF_lungs_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = CF_lungs_KC_luminex_df_PBSvsBt)
+summary(CF_lungs_KC_luminex_df_PBSvsBt_model)
+
+
+
+```
+
+#Run a loop to find all cytokines that are differentially expressed in the serum between PBS and Bacteroides for nonCF mice, across both experiments
+```{r}
+
+#Extract just PBS and Bacteroides
+nonCF_serum_luminex_PBSandBt_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Serum",
+         Treatment %in% c("PBS", "Bacteroides"))
+
+nonCF_serum_luminex_PBSandBt_df <- nonCF_serum_luminex_PBSandBt_df %>%
+  mutate(Cytokine_pg_per_mL = Cytokine_pg_per_mL + 1)
+
+# Check levels of Treatment, Sex, and Experiment:Cage for each Cytokine
+cytokine_level_check <- nonCF_serum_luminex_PBSandBt_df %>%
+  group_by(Cytokine) %>%
+  summarize(
+    Treatment_levels = n_distinct(Treatment),
+    Sex_levels = n_distinct(Sex),
+    Experiment_Cage_levels = n_distinct(interaction(Experiment, Cage))
+  )
+
+
+# Ensure the 'linear_models_serum' directory exists
+dir.create("linear_models_nonCF_serum", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_nonCFserum_summary <- data.frame(
+  Cytokine = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_summary, term) {
+  coef_table <- as.data.frame(model_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique cytokine
+for(cytokine in unique(nonCF_serum_luminex_PBSandBt_df$Cytokine)) {
+  # Subset data for the current cytokine
+  subset_data <- subset(nonCF_serum_luminex_PBSandBt_df, Cytokine == cytokine)
+
+  # Fit the mixed linear model
+  model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = subset_data)
+
+  # Obtain the summary of the model
+  model_summary <- summary(model)
+
+  # Extract the p-values for Genotype and Sex
+  p_treatment <- safe_extract_pvalue(model_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_summary, "SexM")
+
+  # Add to the summary dataframe
+  linear_models_nonCFserum_summary <- rbind(linear_models_nonCFserum_summary, data.frame(
+    Cytokine = cytokine,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_nonCF_serum/model_", cytokine, ".txt")
+  capture.output(model_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(linear_models_nonCFserum_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_nonCFserum_summary$Significance_Treatment <- sapply(linear_models_nonCFserum_summary$P_Value_Treatment, categorize_significance)
+linear_models_nonCFserum_summary$Significance_Sex <- sapply(linear_models_nonCFserum_summary$P_Value_Sex, categorize_significance)
+
+# View the updated dataframe
+linear_models_nonCFserum_summary
+
+# Apply Bonferroni correction to the P_Value_Genotype column
+linear_models_nonCFserum_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_nonCFserum_summary$P_Value_Treatment, method = "bonferroni")
+linear_models_nonCFserum_summary$P_Value_Sex_Bonferroni <- p.adjust(linear_models_nonCFserum_summary$P_Value_Sex, method = "bonferroni")
+
+
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_nonCFserum_summary, "linear_models_nonCFserum_summary.csv", row.names = FALSE)
+
+
+
+```
+
+
+#Run a loop to find all cytokines that are differentially expressed in the lungs between PBS and Bacteroides for nonCF mice, across both experiments
+
+```{r}
+
+#Extract just PBS and Bacteroides
+nonCF_lungs_luminex_PBSandBt_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Lungs",
+         Treatment %in% c("PBS", "Bacteroides"))
+
+nonCF_lungs_luminex_PBSandBt_df <- nonCF_lungs_luminex_PBSandBt_df %>%
+  mutate(Cytokine_pg_per_mL = Cytokine_pg_per_mL + 1)
+
+# Check levels of Treatment, Sex, and Experiment:Cage for each Cytokine
+cytokine_level_check2 <- nonCF_lungs_luminex_PBSandBt_df %>%
+  group_by(Cytokine) %>%
+  summarize(
+    Treatment_levels = n_distinct(Treatment),
+    Sex_levels = n_distinct(Sex),
+    Experiment_Cage_levels = n_distinct(interaction(Experiment, Cage))
+  )
+
+
+# Ensure the 'linear_models_serum' directory exists
+dir.create("linear_models_nonCF_lungs", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_nonCFlungs_summary <- data.frame(
+  Cytokine = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_summary2, term) {
+  coef_table <- as.data.frame(model_summary2$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique cytokine
+for(cytokine in unique(nonCF_lungs_luminex_PBSandBt_df$Cytokine)) {
+  # Subset data for the current cytokine
+  subset_data2 <- subset(nonCF_lungs_luminex_PBSandBt_df, Cytokine == cytokine)
+
+  # Fit the mixed linear model
+  model2 <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = subset_data2)
+
+  # Obtain the summary of the model
+  model_summary2 <- summary(model2)
+
+  # Extract the p-values for Genotype and Sex
+  p_treatment <- safe_extract_pvalue(model_summary2, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_summary2, "SexM")
+
+  # Add to the summary dataframe
+  linear_models_nonCFlungs_summary <- rbind(linear_models_nonCFlungs_summary, data.frame(
+    Cytokine = cytokine,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_nonCF_lungs/model_", cytokine, ".txt")
+  capture.output(model_summary2, file = file_name)
+}
+
+# View the summary dataframe
+print(linear_models_nonCFlungs_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_nonCFlungs_summary$Significance_Treatment <- sapply(linear_models_nonCFlungs_summary$P_Value_Treatment, categorize_significance)
+linear_models_nonCFlungs_summary$Significance_Sex <- sapply(linear_models_nonCFlungs_summary$P_Value_Sex, categorize_significance)
+
+# View the updated dataframe
+linear_models_nonCFlungs_summary
+
+# Apply Bonferroni correction to the P_Value_Genotype column
+linear_models_nonCFlungs_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_nonCFlungs_summary$P_Value_Treatment, method = "bonferroni")
+
+
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_nonCFlungs_summary, "linear_models_nonCFlungs_summary.csv", row.names = FALSE)
+
+
+
+
+```
+
+#Make a volcano plot showing fold change on x axis and p valye on y axis for serum cytokines
+```{r}
+
+# Filter data for nonCF and CF
+nonCF_PBS_data_serum <- nonCF_serum_luminex_PBSandBt_df[nonCF_serum_luminex_PBSandBt_df$Treatment == 'PBS', ]
+nonCF_Bt_data_serum <- nonCF_serum_luminex_PBSandBt_df[nonCF_serum_luminex_PBSandBt_df$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both nonCF and CF groups
+median_nonCF_PBS_serum <- aggregate(Cytokine_pg_per_mL ~ Cytokine, nonCF_PBS_data_serum, median)
+median_nonCF_Bt_serum <- aggregate(Cytokine_pg_per_mL ~ Cytokine, nonCF_Bt_data_serum, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_nonCF_serum <- merge(median_nonCF_PBS_serum, median_nonCF_Bt_serum, by = "Cytokine")
+
+# Calculate fold changes
+foldchange_nonCF_serum$FoldChange <- foldchange_nonCF_serum$Cytokine_pg_per_mL.y / foldchange_nonCF_serum$Cytokine_pg_per_mL.x
+
+# Rename columns for clarity
+names(foldchange_nonCF_serum) <- c("Cytokine", "Median_PBS", "Median_Bacteroides", "FoldChange")
+
+# Display the dataframe
+print(foldchange_nonCF_serum)
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_serum_summary' into 'foldchange_serum'
+foldchange_nonCF_serum <- merge(foldchange_nonCF_serum, linear_models_nonCFserum_summary[, c("Cytokine", "P_Value_Treatment")], by = "Cytokine", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on serums
+```{r}
+# Transform the data
+foldchange_nonCF_serum$log2FoldChange <- log2(foldchange_nonCF_serum$FoldChange)
+foldchange_nonCF_serum$negLog10PValue <- -log10(foldchange_nonCF_serum$P_Value_Treatment)
+
+# Add a new column "DiffExpression" to the foldchange_serum DataFrame
+foldchange_nonCF_serum$DiffExpression <- ifelse(foldchange_nonCF_serum$P_Value_Treatment < 0.05, 
+                                          ifelse(foldchange_nonCF_serum$FoldChange > 1, "Up in Bacteroides", 
+                                                 ifelse(foldchange_nonCF_serum$FoldChange < 1, "Down in Bacteroides", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBacteroides_nonCFserum<- ggplot(data = foldchange_nonCF_serum, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bacteroides" = "#00AFBB", "Down in Bacteroides" = "#bb0c00", "Not Significant" = "grey"))+
+  geom_text(aes(label=Cytokine), vjust = 2, hjust = 0.5, size = 2, check_overlap = TRUE)+
+  ggtitle("Cytokines Differentially Expressed Between PBS and Bacteroides gavaged nonCF Mice in Serum")+
+  theme(plot.title = element_text(size = 12)) # Reduced font size for title
+
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBacteroides_nonCFserum.pdf", plot = Volcanoplot_PBSvsBacteroides_nonCFserum, width = 10, height = 4, device = "pdf")
+
+
+```
+---
+title: "08062024_LuminexAnalysis"
+author: "Rebecca Valls"
+date: "2024-08-06"
+output: html_document
+---
+'
+#Install libraries
+```{r}
+# Install and load necessary packages if not already installed
+# install.packages("dplyr")
+# install.packages("readr")
+# install.packages("broom")
+# install.packages("purrr")
+# install.packages("hrbrthemes")
+# install.packages("geomtextpath")
+# install.packages("lmerTest")
+# install.packages("ggplot2")
+library(readr)
+library(dplyr)
+library(broom)
+library(purrr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(hrbrthemes)
+library(geomtextpath)
+library(dplyr)
+
+
+```
+
+#Load data
+```{r}
+BacteroidesEstablishment_SerumandLungs_2nonCFand2CF_MasterLuminex <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/3_DataAnalysis/Luminex_Aug2024/BacteroidesEstablishment_SerumandLungs__2nonCFand2CF_MasterLuminex.csv")
+
+luminex_df <- as.data.frame(BacteroidesEstablishment_SerumandLungs_2nonCFand2CF_MasterLuminex)
+
+# Factor the "Treatment" column
+luminex_df <- luminex_df %>%
+  mutate(Treatment = factor(Treatment, levels = c("Baseline", "PBS", "Bacteroides")))
+
+# Factor the "Sex" column
+luminex_df <- luminex_df %>%
+  mutate(Sex = factor(Sex, levels = c("M", "F")))
+
+
+luminex_df$Cage <- as.factor(luminex_df$Cage)
+
+
+
+
+#Subset data into each experiment
+#nonCF Exp1
+nonCF_Exp1_luminex_df<- luminex_df %>%
+  filter(Experiment == "nonCF_Exp1")
+
+#nonCF Exp2
+nonCF_Exp2_luminex_df<- luminex_df %>%
+  filter(Experiment == "nonCF_Exp2")
+
+
+#CF Exp1
+CF_Exp1_luminex_df<- luminex_df %>%
+  filter(Experiment %in% c("CF_Baseline", "CF_Exp1"))
+
+#CF Exp2
+CF_Exp2_luminex_df<- luminex_df %>%
+  filter(Experiment == "CF_Exp2")
+
+
+```
+
+
+#Extract serum and lungs KC and plot for nonCF Experiment 1
+```{r}
+nonCF_Exp1_serum_KC_luminex_df <- nonCF_Exp1_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+nonCF_Exp1_serum_KC_dotplot <- ggplot(nonCF_Exp1_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp1_serum_KC_dotplot
+
+ggsave("nonCF_Exp1_serum_KC_dotplot.pdf", plot = nonCF_Exp1_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+nonCF_Exp1_lungs_KC_luminex_df <- nonCF_Exp1_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+nonCF_Exp1_lungs_KC_dotplot <- ggplot(nonCF_Exp1_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp1_lungs_KC_dotplot
+
+ggsave("nonCF_Exp1_lungs_KC_dotplot.pdf", plot = nonCF_Exp1_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+
+
+```
+
+#Extract serum and lungs KC and plot for Experiment 2
+```{r}
+nonCF_Exp2_serum_KC_luminex_df <- nonCF_Exp2_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+nonCF_Exp2_serum_KC_dotplot <- ggplot(nonCF_Exp2_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp2_serum_KC_dotplot
+
+ggsave("nonCF_Exp2_serum_KC_dotplot.pdf", plot = nonCF_Exp2_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+nonCF_Exp2_lungs_KC_luminex_df <- nonCF_Exp2_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+nonCF_Exp2_lungs_KC_dotplot <- ggplot(nonCF_Exp2_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+nonCF_Exp2_lungs_KC_dotplot
+ggsave("nonCF_Exp2_lungs_KC_dotplot.pdf", plot = nonCF_Exp2_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+```
+#Extract serum and lungs KC and plot for CF Experiment 1
+```{r}
+
+CF_Exp1_serum_KC_luminex_df <- CF_Exp1_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+CF_Exp1_serum_KC_dotplot <- ggplot(CF_Exp1_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_Exp1_serum_KC_dotplot
+
+ggsave("CF_Exp1_serum_KC_dotplot.pdf", plot = CF_Exp1_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+CF_Exp1_Lungs_KC_luminex_df <- CF_Exp1_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+CF_Exp1_lungs_KC_dotplot <- ggplot(CF_Exp1_Lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_Exp1_lungs_KC_dotplot
+
+ggsave("CF_Exp1_lungs_KC_dotplot.pdf", plot = CF_Exp1_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+
+```
+
+#Extract serum and lungs KC and plot for CF Experiment 2
+```{r}
+
+CF_Exp2_serum_KC_luminex_df <- CF_Exp2_luminex_df %>%
+  filter(SampleType == "Serum",
+         Cytokine == "KC")
+
+
+CF_Exp2_serum_KC_dotplot <- ggplot(CF_Exp2_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_Exp2_serum_KC_dotplot
+ggsave("CF_Exp2_serum_KC_dotplot.pdf", plot = CF_Exp2_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+CF_Exp2_Lungs_KC_luminex_df <- CF_Exp2_luminex_df %>%
+  filter(SampleType == "Lungs",
+         Cytokine == "KC")
+
+
+CF_Exp2_lungs_KC_dotplot <- ggplot(CF_Exp2_Lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_Exp2_lungs_KC_dotplot
+ggsave("CF_Exp2_lungs_KC_dotplot.pdf", plot = CF_Exp2_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+
+```
+
+
+#Plot KC in serum and lungs from both nonCF experiments
+```{r}
+nonCF_serum_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Serum",
+         Cytokine == "KC")
+
+nonCF_serum_KC_dotplot <- ggplot(nonCF_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 5) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_serum_KC_dotplot
+ggsave("nonCF_serum_KC_dotplot.pdf", plot = nonCF_serum_KC_dotplot, device = "pdf", width = 6, height = 3)
+
+#help from claude to outline the male triangles with black line: 
+print(colnames(nonCF_serum_KC_luminex_df))
+
+nonCF_serum_KC_dotplot_claude <- ggplot(nonCF_serum_KC_luminex_df, 
+                                  aes(x = Treatment, y = Cytokine_pg_per_mL_serum, fill = Treatment)) +
+  geom_jitter(data = subset(nonCF_serum_KC_luminex_df, Sex == "F"),
+              aes(shape = Sex, fill = Treatment), color = "grey50", width = 0.2, size = 1.5, stroke = 0) +
+  geom_jitter(data = subset(nonCF_serum_KC_luminex_df, Sex == "M"),
+              aes(shape = Sex, fill = Treatment), color = "black", width = 0.2, size = 1.5, stroke = 0.5) +
+  stat_summary(aes(group = Treatment, color = Treatment), fun = median, geom = "crossbar", width = 0.8, fatten = 2) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "KC in Serum (pg/mL)")
+
+nonCF_serum_KC_dotplot_claude
+ggsave("nonCF_serum_KC_dotplot_PR.pdf", plot = nonCF_serum_KC_dotplot_claude, device = "pdf", width = 6, height = 4)
+
+
+#separate by sex
+nonCF_serum_KC_dotplot_sexseparated <- ggplot(nonCF_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  facet_wrap(~Sex)+
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 5) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+nonCF_serum_KC_dotplot_sexseparated
+ggsave("nonCF_serum_KC_dotplot_sexseparated.pdf", plot = nonCF_serum_KC_dotplot_sexseparated, device = "pdf", width = 6, height = 3)
+
+nonCF_lungs_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Lungs",
+         Cytokine == "KC")
+
+nonCF_lungs_KC_dotplot <- ggplot(nonCF_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+
+nonCF_lungs_KC_dotplot
+
+ggsave("nonCF_lungs_KC_dotplot.pdf", plot = nonCF_lungs_KC_dotplot, device = "pdf", width = 6, height = 3)
+
+#help from claude to outline the male triangles with black line: 
+nonCF_lungs_KC_dotplot_claude <- ggplot(nonCF_lungs_KC_luminex_df, 
+                                  aes(x = Treatment, y = Cytokine_pg_per_mL_lungs, fill = Treatment)) +
+  geom_jitter(data = subset(nonCF_lungs_KC_luminex_df, Sex == "F"),
+              aes(shape = Sex, fill = Treatment), color = "grey50", width = 0.2, size = 1.5, stroke = 0) +
+  geom_jitter(data = subset(nonCF_lungs_KC_luminex_df, Sex == "M"),
+              aes(shape = Sex, fill = Treatment), color = "black", width = 0.2, size = 1.5, stroke = 0.5) +
+  stat_summary(aes(group = Treatment, color = Treatment), fun = median, geom = "crossbar", width = 0.8, fatten = 2) +
+  scale_shape_manual(values = c("F" = 21, "M" = 24)) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), guide = "none") +
+  scale_fill_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange"), name = "Treatment") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = "KC in Lungs (pg/mL)")
+
+nonCF_lungs_KC_dotplot_claude
+ggsave("nonCF_lungs_KC_dotplot_PR.pdf", plot = nonCF_lungs_KC_dotplot_claude, device = "pdf", width = 6, height = 4)
+
+
+nonCF_lungs_KC_dotplot_sexseparated <- ggplot(nonCF_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  facet_wrap(~Sex)+
+  geom_jitter(width = 0.2, size = 1.5) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.8, fatten = 5) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  scale_shape_manual(values = c("F" = 16, "M" = 17)) +  # Set female to circles and male to triangles
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+
+nonCF_lungs_KC_dotplot_sexseparated
+
+ggsave("nonCF_lungs_KC_dotplot_sexseparated.pdf", plot = nonCF_lungs_KC_dotplot_sexseparated, device = "pdf", width = 6, height = 3)
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+# Compute KC mean differences (PBS - Bacteroides) for non-CF mice
+kc_diff_plot <- luminex_df %>%
+  filter(Genotype == "C57BL_6J", Cytokine == "KC", SampleType %in% c("Lungs", "Serum"), Treatment %in% c("PBS", "Bacteroides")) %>%
+  group_by(SampleType, Sex, Treatment) %>%
+  summarise(median_KC = median(Cytokine_pg_per_mL), .groups = "drop") %>%
+  pivot_wider(names_from = Treatment, values_from = median_KC) %>%
+  mutate(Diff = PBS - Bacteroides) %>%
+  ggplot(aes(x = interaction(SampleType, Sex), y = -Diff, fill = SampleType)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  labs(
+    x = "Sample Type and Sex",
+    y = "Median Change in KC (PBS - Bacteroides)",
+    title = "Median Change in KC by Sample Type and Sex (non-CF)"
+  ) +
+  scale_fill_manual(values = c("Serum" = "skyblue", "Lungs" = "tomato")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print and save plot
+kc_diff_plot
+ggsave("nonCF_KC_median_diff_by_sampletype_and_sex.pdf", plot = kc_diff_plot, width = 5, height = 4)
+
+```
+
+
+
+
+
+
+#Plot KC in serum and lungs from both experiments
+```{r}
+CF_serum_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "CftrF508del",
+         SampleType == "Serum",
+         Cytokine == "KC")
+
+CF_serum_KC_dotplot <- ggplot(CF_serum_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Serum (pg/mL)", color = "Treatment Group")
+
+CF_serum_KC_dotplot
+ggsave("CF_serum_KC_dotplot.pdf", plot = CF_serum_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+CF_lungs_KC_luminex_df <- luminex_df %>%
+  filter(Genotype == "CftrF508del",
+         SampleType == "Lungs",
+         Cytokine == "KC")
+
+CF_lungs_KC_dotplot <- ggplot(CF_lungs_KC_luminex_df, aes(x = Treatment, y = Cytokine_pg_per_mL, color = Treatment, shape = Sex)) +
+  geom_jitter(width = 0.2, size = 3) +  # Adjust width to avoid overlap
+    stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), width = 0.5, fatten = 2) +  # Add median crossbars
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Rotate labels at 45 degrees
+  labs(y = "KC in Lungs (pg/mL)", color = "Treatment Group")
+
+CF_lungs_KC_dotplot
+ggsave("CF_lungs_KC_dotplot.pdf", plot = CF_lungs_KC_dotplot, device = "pdf", width = 4, height = 3)
+
+```
+
+
+
+Run stats for just KC of nonCF Exp1 and 2
+```{r}
+# Factor the "Sex" column
+nonCF_serum_KC_luminex_df <- nonCF_serum_KC_luminex_df %>%
+  mutate(Sex = factor(Sex, levels = c("M", "F")))
+
+# Factor the "Treatment" column 
+nonCF_serum_KC_luminex_df <- nonCF_serum_KC_luminex_df %>%
+  mutate(Treatment = factor(Treatment, levels = c("Baseline", "PBS", "Bacteroides")))
+
+#serum
+
+#Subset just PBS and Bacteroides treatment groups to run stats (change between the two to set Baseline or PBS as the reference)
+nonCF_serum_KC_luminex_df_PBSvsBt <- nonCF_serum_KC_luminex_df[nonCF_serum_KC_luminex_df$Treatment %in% c("Baseline", "PBS"), ]
+
+#check if data is normal
+nonCF_serum_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(nonCF_serum_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(nonCF_serum_KC_luminex_df_PBSvsBt_normalcy_result) #data is not normal
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC 
+
+
+nonCF_serum_KC_luminex_df_PBSvsBt_model2 <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_serum_KC_luminex_df_PBSvsBt)
+summary(nonCF_serum_KC_luminex_df_PBSvsBt_model2) #this is the one that is used to discuss paper
+
+
+#lungs
+#Subset just PBS and Bacteroides treatment groups to run stats
+nonCF_lungs_KC_luminex_df_PBSvsBt <- nonCF_lungs_KC_luminex_df[nonCF_lungs_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+# Factor the "Sex" column
+nonCF_lungs_KC_luminex_df_PBSvsBt <- nonCF_lungs_KC_luminex_df_PBSvsBt %>%
+  mutate(Sex = factor(Sex, levels = c("F", "M")))
+
+#check if data is normal
+nonCF_lungs_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(nonCF_lungs_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(nonCF_lungs_KC_luminex_df_PBSvsBt_normalcy_result) #data is not normal
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC in lungs
+nonCF_lungs_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_lungs_KC_luminex_df_PBSvsBt)
+summary(nonCF_lungs_KC_luminex_df_PBSvsBt_model)
+
+#Compare baseline to Bacteroides
+nonCF_lungs_KC_luminex_df_BaselinevsBt <- nonCF_lungs_KC_luminex_df[nonCF_lungs_KC_luminex_df$Treatment %in% c("Baseline", "Bacteroides"), ]
+
+# Factor the "Sex" column
+nonCF_lungs_KC_luminex_df_BaselinevsBt <- nonCF_lungs_KC_luminex_df_BaselinevsBt %>%
+  mutate(Sex = factor(Sex, levels = c("F", "M")))
+
+#check if data is normal
+nonCF_lungs_KC_luminex_df_BaselinevsBt_normalcy_result <- shapiro.test(nonCF_lungs_KC_luminex_df_BaselinevsBt$Cytokine_pg_per_mL)
+
+print(nonCF_lungs_KC_luminex_df_BaselinevsBt_normalcy_result) #data is not normal
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC in lungs
+nonCF_lungs_KC_luminex_df_BaselinevsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_lungs_KC_luminex_df_BaselinevsBt)
+summary(nonCF_lungs_KC_luminex_df_BaselinevsBt_model)
+
+
+#Compare baseline to PBS
+nonCF_lungs_KC_luminex_df_BaselinevsPBS <- nonCF_lungs_KC_luminex_df[nonCF_lungs_KC_luminex_df$Treatment %in% c("Baseline", "PBS"), ]
+
+# Factor the "Sex" column
+nonCF_lungs_KC_luminex_df_BaselinevsPBS <- nonCF_lungs_KC_luminex_df_BaselinevsPBS %>%
+  mutate(Sex = factor(Sex, levels = c("F", "M")))
+
+#check if data is normal
+nonCF_lungs_KC_luminex_df_BaselinevsPBS_normalcy_result <- shapiro.test(nonCF_lungs_KC_luminex_df_BaselinevsPBS$Cytokine_pg_per_mL)
+
+print(nonCF_lungs_KC_luminex_df_BaselinevsPBS_normalcy_result) #data is not normal
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC in lungs
+nonCF_lungs_KC_luminex_df_BaselinevsPBS_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = nonCF_lungs_KC_luminex_df_BaselinevsPBS)
+summary(nonCF_lungs_KC_luminex_df_BaselinevsPBS_model)
+
+
+```
+
+Run stats for just KC of CF Exp1 and 2
+```{r}
+# serum
+#Subset just PBS and Bacteroides treatment groups to run stats
+CF_serum_KC_luminex_df_PBSvsBt <- CF_serum_KC_luminex_df[CF_serum_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+#check if data is normal
+CF_serum_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(CF_serum_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(CF_serum_KC_luminex_df_PBSvsBt_normalcy_result) #data is normal, but we have only 20 entries so we will still normalize it
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC / setting Cage as random affect
+CF_serum_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = CF_serum_KC_luminex_df_PBSvsBt)
+summary(CF_serum_KC_luminex_df_PBSvsBt_model)
+
+CF_serum_KC_luminex_df_PBSvsBt_model2 <- lmer(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + (1|Cage), data = CF_serum_KC_luminex_df_PBSvsBt)
+summary(CF_serum_KC_luminex_df_PBSvsBt_model)
+
+#lungs
+
+#Subset just PBS and Bacteroides treatment groups to run stats
+CF_lungs_KC_luminex_df_PBSvsBt <- CF_lungs_KC_luminex_df[CF_lungs_KC_luminex_df$Treatment %in% c("PBS", "Bacteroides"), ]
+
+#check if data is normal
+CF_lungs_KC_luminex_df_PBSvsBt_normalcy_result <- shapiro.test(CF_lungs_KC_luminex_df_PBSvsBt$Cytokine_pg_per_mL)
+print(CF_lungs_KC_luminex_df_PBSvsBt_normalcy_result) #data is normal, but we have only 20 entries so we will still normalize it
+
+
+#Run Stats on KC cytokine after abx to see if treatment or sex group has an affect on KC / setting Cage as random affect
+CF_lungs_KC_luminex_df_PBSvsBt_model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Experiment:Cage, data = CF_lungs_KC_luminex_df_PBSvsBt)
+summary(CF_lungs_KC_luminex_df_PBSvsBt_model)
+
+
+
+```
+
+#Run a loop to find all cytokines that are differentially expressed in the serum between PBS and Bacteroides for nonCF mice, across both experiments
+```{r}
+
+#Extract just PBS and Bacteroides
+nonCF_serum_luminex_PBSandBt_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Serum",
+         Treatment %in% c("PBS", "Bacteroides"))
+
+nonCF_serum_luminex_PBSandBt_df <- nonCF_serum_luminex_PBSandBt_df %>%
+  mutate(Cytokine_pg_per_mL = Cytokine_pg_per_mL + 1)
+
+# Check levels of Treatment, Sex, and Experiment:Cage for each Cytokine
+cytokine_level_check <- nonCF_serum_luminex_PBSandBt_df %>%
+  group_by(Cytokine) %>%
+  summarize(
+    Treatment_levels = n_distinct(Treatment),
+    Sex_levels = n_distinct(Sex),
+    Experiment_Cage_levels = n_distinct(interaction(Experiment, Cage))
+  )
+
+
+# Ensure the 'linear_models_serum' directory exists
+dir.create("linear_models_nonCF_serum", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_nonCFserum_summary <- data.frame(
+  Cytokine = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  P_Value_Treatment_Sex = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_summary, term) {
+  coef_table <- as.data.frame(model_summary$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+# Loop over each unique cytokine
+for(cytokine in unique(nonCF_serum_luminex_PBSandBt_df$Cytokine)) {
+  # Subset data for the current cytokine
+  subset_data <- subset(nonCF_serum_luminex_PBSandBt_df, Cytokine == cytokine)
+
+  # Fit the mixed linear model
+  model <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment + Experiment:Cage, data = subset_data)
+
+  # Obtain the summary of the model
+  model_summary <- summary(model)
+
+  # Extract the p-values for Genotype and Sex
+  p_treatment <- safe_extract_pvalue(model_summary, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_summary, "SexF")
+  p_treatment_sex<- safe_extract_pvalue(model_summary, "TreatmentBacteroides:SexF")
+
+  # Add to the summary dataframe
+  linear_models_nonCFserum_summary <- rbind(linear_models_nonCFserum_summary, data.frame(
+    Cytokine = cytokine,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Treatment_Sex = p_treatment_sex
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_nonCF_serum/model_", cytokine, ".txt")
+  capture.output(model_summary, file = file_name)
+}
+
+# View the summary dataframe
+print(linear_models_nonCFserum_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_nonCFserum_summary$Significance_Treatment <- sapply(linear_models_nonCFserum_summary$P_Value_Treatment, categorize_significance)
+linear_models_nonCFserum_summary$Significance_Sex <- sapply(linear_models_nonCFserum_summary$P_Value_Sex, categorize_significance)
+
+# View the updated dataframe
+linear_models_nonCFserum_summary
+
+# Apply Bonferroni correction to the P_Value_Genotype column
+linear_models_nonCFserum_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_nonCFserum_summary$P_Value_Treatment, method = "bonferroni")
+linear_models_nonCFserum_summary$P_Value_Sex_Bonferroni <- p.adjust(linear_models_nonCFserum_summary$P_Value_Sex, method = "bonferroni")
+
+
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_nonCFserum_summary, "linear_models_nonCFserum_summary.csv", row.names = FALSE)
+
+
+
+```
+
+
+#Run a loop to find all cytokines that are differentially expressed in the lungs between PBS and Bacteroides for nonCF mice, across both experiments
+
+```{r}
+
+#Extract just PBS and Bacteroides
+nonCF_lungs_luminex_PBSandBt_df <- luminex_df %>%
+  filter(Genotype == "C57BL_6J",
+         SampleType == "Lungs",
+         Treatment %in% c("PBS", "Bacteroides"))
+
+nonCF_lungs_luminex_PBSandBt_df <- nonCF_lungs_luminex_PBSandBt_df %>%
+  mutate(Cytokine_pg_per_mL = Cytokine_pg_per_mL + 1)
+
+#factor females first
+
+# Check levels of Treatment, Sex, and Experiment:Cage for each Cytokine
+cytokine_level_check2 <- nonCF_lungs_luminex_PBSandBt_df %>%
+  group_by(Cytokine) %>%
+  summarize(
+    Treatment_levels = n_distinct(Treatment),
+    Sex_levels = n_distinct(Sex),
+    Experiment_Cage_levels = n_distinct(interaction(Experiment, Cage))
+  )
+
+
+# Ensure the 'linear_models_serum' directory exists
+dir.create("linear_models_nonCF_lungs", showWarnings = FALSE)
+
+# Initialize the summary dataframe
+linear_models_nonCFlungs_summary <- data.frame(
+  Cytokine = character(),
+  P_Value_Treatment = numeric(),
+  P_Value_Sex = numeric(),
+  P_Value_Sex_Treatment = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Function to safely extract p-value
+safe_extract_pvalue <- function(model_summary2, term) {
+  coef_table <- as.data.frame(model_summary2$coefficients)
+  if (term %in% rownames(coef_table)) {
+    return(coef_table[term, "Pr(>|t|)"])
+  }
+  return(NA)
+}
+
+
+nonCF_lungs_luminex_PBSandBt_df$Sex <- factor(nonCF_lungs_luminex_PBSandBt_df$Sex, levels = c("F", "M"))
+
+# Loop over each unique cytokine
+for(cytokine in unique(nonCF_lungs_luminex_PBSandBt_df$Cytokine)) {
+  # Subset data for the current cytokine
+  subset_data2 <- subset(nonCF_lungs_luminex_PBSandBt_df, Cytokine == cytokine)
+
+  # Fit the mixed linear model
+  model2 <- lm(log2(Cytokine_pg_per_mL) ~ Treatment + Sex + Sex*Treatment+Experiment:Cage, data = subset_data2)
+
+  # Obtain the summary of the model
+  model_summary2 <- summary(model2)
+
+  # Extract the p-values for Genotype and Sex
+  p_treatment <- safe_extract_pvalue(model_summary2, "TreatmentBacteroides")
+  p_sex <- safe_extract_pvalue(model_summary2, "SexM")
+  p_sex_treatment <- safe_extract_pvalue(model_summary2, "TreatmentBacteroides:SexM")
+
+  # Add to the summary dataframe
+  linear_models_nonCFlungs_summary <- rbind(linear_models_nonCFlungs_summary, data.frame(
+    Cytokine = cytokine,
+    P_Value_Treatment = p_treatment,
+    P_Value_Sex = p_sex,
+    P_Value_Sex_Treatment=p_sex_treatment
+  ))
+
+  # Save the summary of each model to a text file
+  file_name <- paste0("linear_models_nonCF_lungs/model_", cytokine, ".txt")
+  capture.output(model_summary2, file = file_name)
+}
+
+# View the summary dataframe
+print(linear_models_nonCFlungs_summary)
+
+# Function to categorize significance
+categorize_significance <- function(p_value) {
+  if(p_value < 0.001) {
+    return("***")
+  } else if(p_value < 0.01) {
+    return("**")
+  } else if(p_value < 0.05) {
+    return("*")
+  } else {
+    return("NS")
+  }
+}
+
+# Apply the function to the dataframe
+linear_models_nonCFlungs_summary$Significance_Treatment <- sapply(linear_models_nonCFlungs_summary$P_Value_Treatment, categorize_significance)
+linear_models_nonCFlungs_summary$Significance_Sex <- sapply(linear_models_nonCFlungs_summary$P_Value_Sex, categorize_significance)
+linear_models_nonCFlungs_summary$Significance_Sex_Treatment <- sapply(linear_models_nonCFlungs_summary$P_Value_Sex_Treatment, categorize_significance)
+
+# View the updated dataframe
+linear_models_nonCFlungs_summary
+
+# Apply Bonferroni correction to the P_Value_Genotype column
+linear_models_nonCFlungs_summary$P_Value_Treatment_Bonferroni <- p.adjust(linear_models_nonCFlungs_summary$P_Value_Treatment, method = "bonferroni")
+linear_models_nonCFlungs_summary$P_Value_Sex_Bonferroni <- p.adjust(linear_models_nonCFlungs_summary$P_Value_Sex, method = "bonferroni")
+linear_models_nonCFlungs_summary$P_Value_Sex_Treatment_Bonferroni <- p.adjust(linear_models_nonCFlungs_summary$P_Value_Sex_Treatment, method = "bonferroni")
+
+
+
+# Save the dataframe as a CSV file
+write.csv(linear_models_nonCFlungs_summary, "linear_models_nonCFlungs_summary.csv", row.names = FALSE)
+
+```
+
+#Make a volcano plot showing fold change on x axis and p valye on y axis for lungs cytokines
+```{r}
+
+# Filter data for nonCF and CF
+nonCF_PBS_data_lungs <- nonCF_lungs_luminex_PBSandBt_df[nonCF_lungs_luminex_PBSandBt_df$Treatment == 'PBS', ]
+nonCF_Bt_data_lungs <- nonCF_lungs_luminex_PBSandBt_df[nonCF_lungs_luminex_PBSandBt_df$Treatment == 'Bacteroides', ]
+
+# Calculate median values for each cytokine in both nonCF and CF groups
+median_nonCF_PBS_lungs <- aggregate(Cytokine_pg_per_mL ~ Cytokine, nonCF_PBS_data_lungs, median)
+median_nonCF_Bt_lungs <- aggregate(Cytokine_pg_per_mL ~ Cytokine, nonCF_Bt_data_lungs, median)
+
+
+# Merge the two dataframes on cytokine names
+foldchange_nonCF_lungs <- merge(median_nonCF_PBS_lungs, median_nonCF_Bt_lungs, by = "Cytokine")
+
+# Calculate fold changes
+foldchange_nonCF_lungs$FoldChange <- foldchange_nonCF_lungs$Cytokine_pg_per_mL.y / foldchange_nonCF_lungs$Cytokine_pg_per_mL.x
+
+# Rename columns for clarity
+names(foldchange_nonCF_lungs) <- c("Cytokine", "Median_PBS", "Median_Bacteroides", "FoldChange")
+
+# Display the dataframe
+print(foldchange_nonCF_lungs)
+
+# Merge the 'P_Value_Genotype' column from 'linear_models_lungs_summary' into 'foldchange_lungs'
+foldchange_nonCF_lungs <- merge(foldchange_nonCF_lungs, linear_models_nonCFlungs_summary[, c("Cytokine", "P_Value_Treatment")], by = "Cytokine", all.x = TRUE)
+
+
+
+```
+
+#Draw a volcano plot on lungs
+```{r}
+# Transform the data
+foldchange_nonCF_lungs$log2FoldChange <- log2(foldchange_nonCF_lungs$FoldChange)
+foldchange_nonCF_lungs$negLog10PValue <- -log10(foldchange_nonCF_lungs$P_Value_Treatment)
+
+# Add a new column "DiffExpression" to the foldchange_lungs DataFrame
+foldchange_nonCF_lungs$DiffExpression <- ifelse(foldchange_nonCF_lungs$P_Value_Treatment < 0.05, 
+                                          ifelse(foldchange_nonCF_lungs$FoldChange > 1, "Up in Bacteroides", 
+                                                 ifelse(foldchange_nonCF_lungs$FoldChange < 1, "Down in Bacteroides", "Not Significant")),
+                                          "Not Significant")
+
+# Biostatsquid theme
+theme_set(theme_classic(base_size = 20) +
+            theme(
+              axis.title.y = element_text(face = "bold", margin = margin(0,20,0,0), size = rel(0.5), color = 'black'),
+              axis.title.x = element_text(hjust = 0.5, face = "bold", margin = margin(20,0,0,0), size = rel(0.5), color = 'black'),
+              plot.title = element_text(hjust = 0.5)
+            ))
+
+
+# Create a basic volcano plot
+Volcanoplot_PBSvsBacteroides_nonCFlungs<- ggplot(data = foldchange_nonCF_lungs, aes(x = log2FoldChange, y = negLog10PValue, color = DiffExpression)) +
+         geom_point()+
+  geom_vline(xintercept = c(-0.6, 0.6), col = "gray", linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.05), col = "gray", linetype = 'dashed') +
+  scale_color_manual(values = c("Up in Bacteroides" = "#00AFBB", "Down in Bacteroides" = "#bb0c00", "Not Significant" = "grey"))+
+  geom_text(aes(label=Cytokine), vjust = 2, hjust = 0.5, size = 2, check_overlap = TRUE)+
+  ggtitle("Cytokines Differentially Expressed Between PBS and Bacteroides gavaged nonCF Mice in lungs")+
+  theme(plot.title = element_text(size = 12)) # Reduced font size for title
+
+
+# Save the plot as a PDF
+ggsave("Volcanoplot_PBSvsBacteroides_nonCFlungs.pdf", plot = Volcanoplot_PBSvsBacteroides_nonCFlungs, width = 10, height = 4, device = "pdf")
+
+
+```
+
+#Run correlation between KC in the lungs vs serum
+```{r}
+library(ggpmisc)
+
+
+
+#Create combined ID column in both dataframes
+nonCF_lungs_KC_luminex_df$Mouse_ID <- paste(nonCF_lungs_KC_luminex_df$Experiment,
+                                             nonCF_lungs_KC_luminex_df$Cage,
+                                             nonCF_lungs_KC_luminex_df$Mouse,
+                                             sep = "_") 
+nonCF_serum_KC_luminex_df$Mouse_ID <- paste(nonCF_serum_KC_luminex_df$Experiment,
+                                            nonCF_serum_KC_luminex_df$Cage,
+                                            nonCF_serum_KC_luminex_df$Mouse,
+                                            sep = "_")
+
+#Rename the Cytokine column in both dataframes
+names(nonCF_lungs_KC_luminex_df)[names(nonCF_lungs_KC_luminex_df) == "Cytokine_pg_per_mL"] <- "Cytokine_pg_per_mL_lungs"
+names(nonCF_serum_KC_luminex_df)[names(nonCF_serum_KC_luminex_df) == "Cytokine_pg_per_mL"] <- "Cytokine_pg_per_mL_serum"
+
+#Select only Mouse_ID and serum cytokine column from the serum dataframe
+serum_subset <- nonCF_serum_KC_luminex_df[, c("Mouse_ID", "Cytokine_pg_per_mL_serum")]
+
+#Merge serum data into lungs dataframe by Mouse_ID
+nonCF_combined_KC_luminex_df <- merge(nonCF_lungs_KC_luminex_df, serum_subset, by = "Mouse_ID", all.x = TRUE)
+
+
+
+
+serum_lungs_KCcorrelation <- ggplot(nonCF_combined_KC_luminex_df, 
+                                    aes(x = log2(Cytokine_pg_per_mL_serum), 
+                                        y = log2(Cytokine_pg_per_mL_lungs), 
+                                        color = Treatment)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, linewidth = 1) +
+  stat_poly_eq(aes(label = after_stat(eq.label)), 
+               formula = y ~ x,
+               parse = TRUE, 
+               size = 3,
+               label.x = "right", 
+               label.y = "top") +
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +
+  labs(x = "KC in Serum (log2 pg/mL)", 
+       y = "KC in Lungs (log2 pg/mL)") +
+  theme_bw() +
+  guides(color = guide_legend(title = "Treatment Group")) +
+  theme(legend.position = "right")
+
+serum_lungs_KCcorrelation
+
+ggsave("serum_lungs_KCcorrelation.pdf", plot = serum_lungs_KCcorrelation, device = "pdf", width = 5, height = 3)
+
+
+#get R2 and p value for each treatment group
+#Subset just Bacteroides 
+bacteroides_df <- subset(nonCF_combined_KC_luminex_df, Treatment == "Bacteroides")
+lm_model_bt <- lm(log2(Cytokine_pg_per_mL_lungs) ~ log2(Cytokine_pg_per_mL_serum), data = bacteroides_df)
+summary(lm_model_bt)
+
+#Subset just PBS 
+PBS_df <- subset(nonCF_combined_KC_luminex_df, Treatment == "PBS")
+lm_model_pbs <- lm(log2(Cytokine_pg_per_mL_lungs) ~ log2(Cytokine_pg_per_mL_serum), data = PBS_df)
+summary(lm_model_pbs)
+
+#Subset just Baseline 
+Baseline_df <- subset(nonCF_combined_KC_luminex_df, Treatment == "Baseline")
+lm_model_baseline <- lm(log2(Cytokine_pg_per_mL_lungs) ~ log2(Cytokine_pg_per_mL_serum), data = Baseline_df)
+summary(lm_model_baseline)
+
+
+library(ggplot2)
+library(ggpmisc)
+
+serum_lungs_KCcorrelation <- ggplot(nonCF_combined_KC_luminex_df, 
+                                    aes(x = log2(Cytokine_pg_per_mL_lungs), 
+                                        y = log2(Cytokine_pg_per_mL_serum), 
+                                        color = Treatment)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, linewidth = 1) +
+  stat_poly_eq(
+    aes(label = after_stat(paste(eq.label, rr.label, p.value.label, sep = "~~~"))),
+    formula = y ~ x,
+    parse = TRUE,
+    size = 4.5,
+    label.x = "left",
+    label.y = "top"
+  ) +
+  scale_color_manual(values = c("Baseline" = "lightgreen", 
+                                "PBS" = "lightblue", 
+                                "Bacteroides" = "orange")) +
+  labs(x = "KC in Lungs (log2 pg/mL)", 
+       y = "KC in Serum (log2 pg/mL)") +
+  theme_bw() +
+  guides(color = guide_legend(title = "Treatment Group")) +
+  theme(legend.position = "right")
+
+serum_lungs_KCcorrelation
+
+ggsave("serum_lungs_KCcorrelation.pdf", plot = serum_lungs_KCcorrelation, device = "pdf", width = 7, height = 5)
+
+
+```

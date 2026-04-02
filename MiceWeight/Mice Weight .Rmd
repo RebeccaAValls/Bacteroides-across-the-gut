@@ -1,0 +1,169 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(ggplot2)
+library(readr)
+library(lme4)
+library(sjPlot)
+library(dplyr)
+library(lmerTest)
+
+
+Bt_Establishment_Mice_Weightv2 <- read_csv("Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/2_Data/Bt_Establishment_Mice_Weightv2.csv")
+
+View(Bt_Establishment_Mice_Weightv2)
+
+weight_data <- as.data.frame(Bt_Establishment_Mice_Weightv2)
+colnames(weight_data)
+
+weight_data$UniqueID <- as.character(interaction(weight_data$Cage, weight_data$`Mouse #`))
+
+
+subsetted_data <- weight_data[weight_data$Treatment != "Baseline",]
+
+filtered_data <- subsetted_data %>%
+  filter(ExpDay >= 0)
+
+# Filter the data to include only rows with ExpDay values less than -26 (Baseline)
+Baseline_weight <- weight_data %>%
+  filter(ExpDay < -26)
+  
+ABX_weight <- weight_data %>%
+  filter(ExpDay > -26, ExpDay < 1)
+  
+  
+Gavage_weight <-weight_data %>%
+  filter(ExpDay > 0)
+
+```
+
+
+
+```{r}
+
+mouse_weight <- ggplot(subsetted_data, aes(x = ExpDay, y = Weight, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+mouse_weight
+
+
+ggsave("mouse_weight.pdf", plot = mouse_weight, width = 8, height = 5)
+
+
+```
+
+#Check normalcy of data
+```{r}
+
+qqnorm(weight_data$Weight)
+qqline(weight_data$Weight)
+
+#Data does not seem to be normal 
+
+# Perform the Shapiro-Wilk test
+miceweight_normalcy_result <- shapiro.test(weight_data$Weight)
+
+# Print the test result
+print(miceweight_normalcy_result) #data is not normally distributued
+
+
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on weight
+Baseline_weight_model <- lmer(log2(Weight) ~ Treatment + Sex + (1|Cage) + (1|ExpDay), data = Baseline_weight)
+summary(Baseline_weight_model)
+
+#Run Stats on abx weight to see if treatment or sex group has an affect on weight
+ABX_weight_model <- lmer(log2(Weight) ~ Treatment + Sex + (1|Cage) + (1|ExpDay), data = ABX_weight)
+summary(ABX_weight_model)
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on weight
+Gavage_weight_model <- lmer(log2(Weight) ~ Treatment + Sex + (1|Cage) + (1|ExpDay), data = Gavage_weight)
+summary(Gavage_weight_model)
+
+
+```
+
+#Plot weight percentage and do stats
+```{r}
+
+#Ribbon Plot
+mouse_weight_percent <- ggplot(subsetted_data, aes(x = ExpDay, y = Weight_percentage, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+mouse_weight_percent
+
+#Pointplot
+mouse_weight_percent_pointplot <- ggplot(weight_data, aes(x = ExpDay, y = Weight_percentage, color = Treatment))+
+  facet_wrap(~Sex)+
+  geom_point()+
+  theme_bw()
+
+mouse_weight_percent_pointplot
+
+#point connected plot
+mouse_weight_percent_connected_points  <- ggplot(weight_data, aes(x = ExpDay, y = Weight_percentage, color = Treatment, shape = Sex)) +
+  geom_point() +
+  stat_summary(fun.y = mean, size=1.5, geom = "line", aes(group = Treatment)) +  # Add this line
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() # Increase border thicknes
+
+
+
+
+mouse_weight_percent_connected_points
+ggsave("mouse_weight_percent_connected_points.pdf", plot = mouse_weight_percent_connected_points, device = "pdf", width = 8, height = 6)
+
+
+
+qqnorm(weight_data$Weight_percentage)
+qqline(weight_data$Weight_percentage)
+
+#Data does not seem to be normal 
+
+# Perform the Shapiro-Wilk test
+miceweightpercent_normalcy_result <- shapiro.test(weight_data$Weight_percentage)
+
+# Print the test result
+print(miceweightpercent_normalcy_result) #data is not normally distributued
+
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on weight %
+Baseline_weightpercent_model <- lmer(Weight_percentage ~ Treatment + Sex + Sex*Treatment+ (1|Cage) + (1|ExpDay)+(1|UniqueID), data = Baseline_weight)
+summary(Baseline_weightpercent_model)
+
+#Run Stats on abx weight to see if treatment or sex group has an affect on weight %
+ABX_weightpercent_model <- lmer(Weight_percentage ~ Treatment + Sex + Sex*Treatment + (1|Cage) + (1|ExpDay)+(1|UniqueID), data = ABX_weight)
+summary(ABX_weightpercent_model)
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on weight %
+Gavage_weightpercent_model <- lmer(Weight_percentage ~ Treatment + Sex + Sex*Treatment+Cage+(1|ExpDay) +(1|UniqueID), data = Gavage_weight)
+summary(Gavage_weightpercent_model)
+
+```
+
+

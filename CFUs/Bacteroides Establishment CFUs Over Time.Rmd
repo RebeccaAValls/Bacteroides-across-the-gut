@@ -1,0 +1,513 @@
+---
+can title: "Bacteroides Establishment CFUs Over Time"
+author: "Rebecca Valls"
+date: "2024-01-11"
+output: html_document
+---
+
+```{r}
+
+# Install the packages
+install.packages("ggplot2")
+install.packages("readr")
+install.packages("lme4")
+install.packages("sjPlot")
+install.packages("dplyr")
+install.packages("lmerTest")
+
+library(ggplot2)
+library(readr)
+library(lme4)
+library(sjPlot)
+library(dplyr)
+library(lmerTest)
+
+
+CFUs_BSA_GM_O2 <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/2_Data/CFUsOverTime/CFUs_BSA_+GM_-O2v2.csv", 
+    col_types = cols(ExpDay = col_number(), 
+        CFUpermL = col_number(), log10_CFUpermL = col_number()))
+
+View(CFUs_BSA_GM_O2)
+
+CFUs_BSA_GM_O2 <- as.data.frame(CFUs_BSA_GM_O2)
+
+#Factor to have treatment groups in correct order: 
+CFUs_BSA_GM_O2$Treatment <- factor(CFUs_BSA_GM_O2$Treatment, levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+# Filter the data to include only rows with ExpDay values less than -26 (Baseline)
+Baseline_CFUs <- CFUs_BSA_GM_O2 %>%
+  filter(ExpDay < -26)
+  
+ABX_CFUs <- CFUs_BSA_GM_O2 %>%
+  filter(ExpDay > -26, ExpDay < 1)
+  
+  
+Gavage_CFUs <-CFUs_BSA_GM_O2 %>%
+  filter(ExpDay > 0)
+
+
+```
+
+#Plot CFUs over time 
+```{r}
+
+CFUs_BSA_GM_O2_plot <- ggplot(data=CFUs_BSA_GM_O2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment))+
+  geom_boxplot()+
+  facet_wrap(~Sex)
+CFUs_BSA_GM_O2_plot
+
+
+CFUs_BSA_GM_O2_plot_smooth <- ggplot(CFUs_BSA_GM_O2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+CFUs_BSA_GM_O2_plot_smooth
+
+#point connected plot
+CFUs_BSA_GM_O2_plot_smooth_connected_points  <- ggplot(CFUs_BSA_GM_O2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment)) +
+  geom_point() +
+  stat_summary(fun.y = mean, size=1.5, geom = "line", aes(group = Treatment)) +  # Add this line
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+CFUs_BSA_GM_O2_plot_smooth_connected_points
+
+mouse_weight_percent_connected_points
+
+
+
+CFUs_BSA_GM_O2_plot_smooth_connected_points <- ggplot(CFUs_BSA_GM_O2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment, shape = Sex)) +
+  geom_point() +
+  geom_line(aes(group = MouseID), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  labs(y = "Gentamicin-resistant CFU/mL (Log10)", x = "Experiment Day", color = "Treatment Group")
+
+CFUs_BSA_GM_O2_plot_smooth_connected_points
+
+ggsave("CFUs_BSA_GM_O2_plot_smooth_connected_points.pdf", plot = CFUs_BSA_GM_O2_plot_smooth_connected_points, device = "pdf", width = 6, height = 3)
+
+
+
+```
+
+```{r}
+#Check normalcy of data
+
+qqnorm(CFUs_BSA_GM_O2$CFUpermL)
+qqline(CFUs_BSA_GM_O2$CFUpermL)
+
+# Perform the Shapiro-Wilk test
+CFU_BSA_GM_O2_normalcy_result <- shapiro.test(CFUs_BSA_GM_O2$CFUpermL)
+
+# Print the test result
+print(CFU_BSA_GM_O2_normalcy_result) #data is not normally distributued
+
+
+#Data does not seem to be normal so we will do stats on log10 transformed data
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on weight
+Baseline_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + Sex*Treatment + (1|Cage), data = Baseline_CFUs)
+summary(Baseline_CFUs_model)
+
+#Run Stats on abx weight to see if treatment or sex group has an affect on weight
+ABX_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage) + (1|ExpDay) + (1|MouseID), data = ABX_CFUs)
+summary(ABX_CFUs_model)
+
+
+Gavage_CFUs$Cage <- as.character(Gavage_CFUs$Cage)
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on weight
+Gavage_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + Sex*Treatment+ Cage + (1|MouseID) + (1|ExpDay) , data = Gavage_CFUs)
+summary(Gavage_CFUs_model)
+
+
+```
+
+#Bring in McConkey anaerobically
+```{r}
+
+CFUs_McC_O2v2 <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/2_Data/CFUsOverTime/CFUs_McC_-O2v2.csv", 
+    col_types = cols(ExpDay = col_number(), 
+        `CFUpermL` = col_number(), `log10_CFUpermL` = col_number()))
+View(CFUs_McC_O2v2)
+
+CFUs_McC_O2v2 <- as.data.frame(CFUs_McC_O2v2)
+
+# Filter the data to include only rows with ExpDay values less than -26 (Baseline)
+McC_Baseline_CFUs <- CFUs_McC_O2v2 %>%
+  filter(ExpDay < -26)
+  
+McC_ABX_CFUs <- CFUs_McC_O2v2 %>%
+  filter(ExpDay > -26, ExpDay < 1)
+  
+  
+McC_Gavage_CFUs <-CFUs_McC_O2v2 %>%
+  filter(ExpDay > 0)
+
+
+CFUs_McC_O2v2$Treatment <- factor(CFUs_McC_O2v2$Treatment, levels=c("Baseline", "PBS", "Bacteroides"))
+
+
+CFUs_McC_pO2 <- read_csv("Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/2_Data/CFUsOverTime/CFUs_McC_+O2.csv")
+
+CFUs_McC_pO2 <- as.data.frame(CFUs_McC_pO2)
+
+# Filter the data to include only rows with ExpDay values less than -26 (Baseline)
+McC_Baseline_CFUs <- CFUs_McC_pO2 %>%
+  filter(ExpDay < -26)
+  
+McC_ABX_CFUs <- CFUs_McC_pO2 %>%
+  filter(ExpDay > -26, ExpDay < 1)
+  
+  
+McC_Gavage_CFUs <-CFUs_McC_pO2 %>%
+  filter(ExpDay > 0)
+
+
+CFUs_McC_pO2$Treatment <- factor(CFUs_McC_pO2$Treatment, levels=c("Baseline", "PBS", "Bacteroides"))
+
+
+
+```
+
+```{r}
+CFUs_McC_O2_plot_smooth <- ggplot(CFUs_McC_O2v2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+CFUs_McC_O2_plot_smooth
+
+ggsave("CFUs_overtime_McC_mO2_smoothplot.pdf", plot = CFUs_McC_O2_plot_smooth, width = 8, height = 5)
+
+
+CFUs_McC_O2_plot_smooth_connected_points <- ggplot(CFUs_McC_pO2, aes(x = ExpDay, y = log10(CFUpermL), color = Treatment, shape = Sex)) +
+  geom_point() +
+  geom_line(aes(group = MouseID), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  labs(y = "Aerobic McConkey CFU/mL (Log10)", x = "Experiment Day", color = "Treatment Group")
+
+CFUs_McC_O2_plot_smooth_connected_points
+
+ggsave("CFUs_McC_O2_plot_smooth_connected_points.pdf", plot = CFUs_McC_O2_plot_smooth_connected_points, device = "pdf", width = 6, height = 3)
+
+
+
+
+```
+
+```{r}
+#Check normalcy of data
+
+qqnorm(CFUs_McC_pO2$CFUpermL)
+qqline(CFUs_McC_pO2$CFUpermL)
+
+#Data does not seem to be normal so we will do stats on log10 transformed data
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on CFUs
+McC_Baseline_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage), data = McC_Baseline_CFUs)
+summary(McC_Baseline_CFUs_model)
+
+#Run Stats on abx weight to see if treatment or sex group has an affect on CFUs
+McC_ABX_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage) + (1|ExpDay) + (1|MouseID), data = McC_ABX_CFUs)
+summary(McC_ABX_CFUs_model)
+
+McC_Gavage_CFUs$Cage <- as.character(McC_Gavage_CFUs$Cage)
+
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on CFUs
+McC_Gavage_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + Sex*Treatment + Cage + (1|MouseID) +(1|ExpDay), data = McC_Gavage_CFUs)
+summary(McC_Gavage_CFUs_model)
+
+
+```
+
+#Bring in McConkey aerobically
+```{r}
+
+CFUs_McC_pO2 <- read_csv("~/Dropbox (Dartmouth College)/Bacteroides_Mouse_FemalevsMale_Experiment2023/3_Experiment/2_Data/CFUsOverTime/CFUs_McC_+O2.csv", 
+    col_types = cols(ExpDay = col_number(), 
+        `CFUpermL` = col_number(), `log10_CFUpermL` = col_number()))
+View(CFUs_McC_pO2)
+
+CFUs_McC_pO2 <- as.data.frame(CFUs_McC_pO2)
+
+# Filter the data to include only rows with ExpDay values less than -26 (Baseline)
+McC_pO2_Baseline_CFUs <- CFUs_McC_pO2 %>%
+  filter(ExpDay < -26)
+  
+McC_pO2_ABX_CFUs <- CFUs_McC_pO2 %>%
+  filter(ExpDay > -26, ExpDay < 1)
+  
+  
+McC_pO2_Gavage_CFUs <-CFUs_McC_pO2 %>%
+  filter(ExpDay > 0)
+
+```
+
+
+```{r}
+CFUs_McC_pO2_plot_smooth <- ggplot(CFUs_McC_pO2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+CFUs_McC_pO2_plot_smooth
+
+```
+
+```{r}
+#Check normalcy of data
+
+qqnorm(CFUs_McC_pO2$CFUpermL)
+qqline(CFUs_McC_pO2$CFUpermL)
+
+#Data does not seem to be normal so we will do stats on log10 transformed data
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on weight
+McC_pO2_Baseline_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage), data = McC_pO2_Baseline_CFUs)
+summary(McC_pO2_Baseline_CFUs_model)
+
+#Run Stats on abx weight to see if treatment or sex group has an affect on weight
+McC_pO2_ABX_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage) + (1|ExpDay) + (1|MouseID), data = McC_pO2_ABX_CFUs)
+summary(McC_pO2_ABX_CFUs_model)
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on weight
+McC_pO2_Gavage_CFUs_model <- lmer(log10_CFUpermL ~ Treatment + Sex + (1|Cage) + (1|ExpDay) + (1|MouseID), data = McC_pO2_Gavage_CFUs)
+summary(McC_pO2_Gavage_CFUs_model)
+
+
+```
+
+#Plot CFUs on blood + gent and Mcc in the same plot, but separate treatment group
+```{r}
+CFUS_BSA_pGM_mO2_and_McC_mO2 <- read_csv("~/Dropbox (Dartmouth College)/Bacteroides_Mouse_FemalevsMale_Experiment2023/3_Experiment/2_Data/CFUsOverTime/CFUS_BSA_pGM_mO2_and_McC_mO2.csv", 
+    col_types = cols(ExpDay = col_number(), 
+        log10_CFUpermL = col_number()))
+
+Bt_ecoli_CFUs <- as.data.frame(CFUS_BSA_pGM_mO2_and_McC_mO2)
+
+McC_McC_CFUs_subset <- subset(Bt_ecoli_CFUs, Condition == "Mcc_pO2")
+
+
+
+```
+
+
+```{r}
+Bt_ecoli_CFUs_plot_smooth <- ggplot(Bt_ecoli_CFUs, aes(x = ExpDay, y = log10_CFUpermL, color = Condition)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Treatment)+
+  scale_y_continuous(trans = 'identity') +
+  theme_bw()  # Increase border thicknes
+
+Bt_ecoli_CFUs_plot_smooth
+
+```
+
+Now analyze CFUs across the gut
+```{r}
+CFUs_across_gut_BA_GM_O2 <- read_csv("~/Dartmouth College Dropbox/Rebecca Valls/Projects/Project_MalevsFemale_nonCFmice_2023/3_Experiment/2_Data/CFUsAcrossGut/CFUs_across_gut_BA_GM_O2.csv", 
+    col_types = cols(CFUpermL = col_number(), 
+        log10_CFUpermL = col_number()))
+View(CFUs_across_gut_BA_GM_O2)
+
+CFUs_across_gut_BA_GM_O2 <- as.data.frame(CFUs_across_gut_BA_GM_O2)
+
+CFUs_across_gut_BA_GM_O2$GI_Position <- factor(CFUs_across_gut_BA_GM_O2$GI_Position,
+                            levels = c("small_intestine", "cecum", "proximal_colon", "distal_colon"))
+
+CFUs_across_gut_BA_GM_O2$Treatment <- factor(CFUs_across_gut_BA_GM_O2$Treatment,
+                            levels = c("Baseline", "PBS", "Bacteroides"))
+
+
+```
+
+
+```{r}
+CFUs_across_gut_BA_GM_O2_luminal <- subset(CFUs_across_gut_BA_GM_O2, Microniche == "luminal_contents")
+
+CFUs_BA_pGM_mO2_plot_box <- ggplot(CFUs_across_gut_BA_GM_O2_luminal, aes(x = GI_Position, y = log10_CFUpermL, color = Treatment)) + 
+  geom_jitter()+
+  theme_bw()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Rotate labels at 45 degrees
+
+CFUs_BA_pGM_mO2_plot_box
+
+CFUs_BA_pGM_mO2_plot_box <- ggplot(CFUs_across_gut_BA_GM_O2, aes(x = Treatment, y = log10_CFUpermL, color = Treatment, shape = Sex)) + 
+  geom_jitter()+
+  facet_wrap(~GI_Position, ncol=4)+
+  stat_summary(fun = median, geom = "crossbar", aes(group = Treatment), position = position_dodge(width = 0.5), width = 0.5, fatten = 2) +  # Add median crossbars, position_dodge to separate them
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 12),  # Increase size of axis text
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),  # Rotate and increase size of x-axis labels
+    axis.title = element_text(size = 10)  # Increase size of axis titles
+  ) +  labs(
+    x = "GI Position", 
+    y = "Gentamicin Resistant Log10 CFU/mL", 
+    color = "Treatment Group"
+  )+  scale_y_continuous(limits = c(0, 8.5), expand=c(0,0)) # adjust the limits of the Y-axis to be between 0 and 9
+
+CFUs_BA_pGM_mO2_plot_box
+
+ggsave("CFUs_BA_pGM_mO2_acrossgut_plot_points.pdf", plot = CFUs_BA_pGM_mO2_plot_box, width = 6, height = 3)
+
+CFUs_across_gut_BA_GM_O2$Mouse <- CFUs_across_gut_BA_GM_O2$`Mouse #`
+
+
+CFUs_across_gut_BA_GM_O2$Treatment <- factor(CFUs_across_gut_BA_GM_O2$Treatment,
+                            levels = c("Baseline", "PBS", "Bacteroides"))
+
+CFUs_across_gut_BA_GM_O2$Treatment <- factor(CFUs_across_gut_BA_GM_O2$Treatment,
+                            levels = c("PBS", "Baseline", "Bacteroides"))
+
+
+#Run Stats on Gavage weight to see if treatment or sex group has an affect on weight
+CFUs_across_gut_BA_GM_O2_model <- lmer(log10_CFUpermL ~ Treatment + Sex + GI_Position+GI_Position*Treatment+(1|Cage/Mouse), data = CFUs_across_gut_BA_GM_O2)
+summary(CFUs_across_gut_BA_GM_O2_model)
+
+# Subset to only Treatment == "Baseline"
+baseline_df <- CFUs_across_gut_BA_GM_O2 %>%
+  filter(Treatment == "Baseline")
+
+# Subset to only Treatment == "PBS" or "Bacteroides"
+pbs_bacteroides_df <- CFUs_across_gut_BA_GM_O2 %>%
+  filter(Treatment %in% c("PBS", "Bacteroides"))
+
+baseline_df_BA_GM_O2_model <- lmer(log10_CFUpermL ~  GI_Position + Sex + GI_Position + (1|Cage/Mouse), data = baseline_df)
+summary(baseline_df_BA_GM_O2_model)
+
+pbs_bacteroides_df_BA_GM_O2_model <- lmer(log10_CFUpermL ~  Treatment + GI_Position + Sex + GI_Position + Treatment*GI_Position + (1|Cage/Mouse), data = pbs_bacteroides_df)
+summary(pbs_bacteroides_df_BA_GM_O2_model)
+
+# Subset to only GI_Position == "small_intestine"
+pbs_bacteroides_SI_df <- pbs_bacteroides_df %>%
+  filter(GI_Position == "small_intestine")
+
+pbs_bacteroides_SI_df_BA_GM_O2_model <- lm(log10_CFUpermL ~  Treatment + Sex  , data = pbs_bacteroides_SI_df)
+summary(pbs_bacteroides_SI_df_BA_GM_O2_model)
+
+# Subset to only GI_Position == "cecum"
+pbs_bacteroides_cec_df <- pbs_bacteroides_df %>%
+  filter(GI_Position == "cecum")
+
+pbs_bacteroides_cec_df_BA_GM_O2_model <- lm(log10_CFUpermL ~  Treatment + Sex  , data = pbs_bacteroides_cec_df)
+summary(pbs_bacteroides_cec_df_BA_GM_O2_model)
+
+
+# Subset to only GI_Position == "proximal_colon"
+pbs_bacteroides_pro_df <- pbs_bacteroides_df %>%
+  filter(GI_Position == "proximal_colon")
+
+pbs_bacteroides_pro_df_BA_GM_O2_model <- lm(log10_CFUpermL ~  Treatment + Sex  , data = pbs_bacteroides_pro_df)
+summary(pbs_bacteroides_pro_df_BA_GM_O2_model)
+
+# Subset to only GI_Position == "distal_colon"
+pbs_bacteroides_dis_df <- pbs_bacteroides_df %>%
+  filter(GI_Position == "distal_colon")
+
+pbs_bacteroides_dis_df_BA_GM_O2_model <- lm(log10_CFUpermL ~  Treatment + Sex  , data = pbs_bacteroides_dis_df)
+summary(pbs_bacteroides_dis_df_BA_GM_O2_model)
+```
+
+
+```{r}
+#Check normalcy of data
+
+qqnorm(CFUs_BA_pGM_mO2$CFUpermL)
+qqline(CFUs_BA_pGM_mO2$CFUpermL)
+
+
+#Run Stats on baseline weight to see if treatment or sex group has an affect on weight
+CFUs_BA_pGM_mO2_CFUs_model <- lm(log10_CFUpermL ~ Treatment + Sex + Microniche + GI_Position, data = CFUs_BA_pGM_mO2)
+summary(CFUs_BA_pGM_mO2_CFUs_model)
+
+```
+
+
+```{r}
+
+
+CFUs_McC_O2_plot_smooth <- ggplot(CFUs_McC_O2v2, aes(x = ExpDay, y = log10_CFUpermL, color = Treatment)) + 
+  geom_smooth(size = 2) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +  # Add vertical lines
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  facet_wrap(~Sex)+
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw()  # Increase border thicknes
+
+CFUs_McC_O2_plot_smooth
+
+ggsave("CFUs_overtime_McC_mO2_smoothplot.pdf", plot = CFUs_McC_O2_plot_smooth, width = 8, height = 5)
+
+
+CFUs_McC_O2_plot_smooth_connected_points <- ggplot(CFUs_McC_O2v2, aes(x = ExpDay, y = log10(CFUpermL), color = Treatment, shape = Sex)) +
+  geom_point() +
+  geom_line(aes(group = MouseID), size = 0.25) +  # Add this line to connect points for each MouseID
+  stat_summary(fun.y = mean, size=2, geom = "line", aes(group = Treatment)) +
+  geom_vline(xintercept = c(0, -25, 12), linetype = "dashed", color = "blue", size = 0.5) +
+  geom_text(aes(x = -25, y = Inf, label = "ABX"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 0, y = Inf, label = "Gavage"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  geom_text(aes(x = 12, y = Inf, label = "LPS"), vjust = 2, color = "red", hjust = 0, size = 3) +
+  scale_y_continuous(trans = 'identity') +
+  scale_color_manual(values = c("Baseline" = "lightgreen", "PBS" = "lightblue", "Bacteroides" = "orange")) +
+  theme_bw() +
+  labs(y = "Aerobic McConkey CFU/mL (Log10)", x = "Experiment Day", color = "Treatment Group")
+
+CFUs_McC_O2_plot_smooth_connected_points
+
+ggsave("CFUs_McC_O2_plot_smooth_connected_points.pdf", plot = CFUs_McC_O2_plot_smooth_connected_points, device = "pdf", width = 6, height = 3)
+
+
+
+
+```
